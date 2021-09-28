@@ -6,7 +6,7 @@ import torch
 import math
 from torch.optim.lr_scheduler import _LRScheduler, LambdaLR
 import numpy as np
-
+from lumo import Logger
 
 def setup_default_logging(args, default_level=logging.INFO,
                           format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s"):
@@ -18,20 +18,20 @@ def setup_default_logging(args, default_level=logging.INFO,
         
     os.makedirs(output_dir, exist_ok=True)
 
-    logger = logging.getLogger('train')
+    logger = Logger()
 
-    logging.basicConfig(  # unlike the root logger, a custom logger can’t be configured using basicConfig()
-        filename=os.path.join(output_dir, f'{time_str()}.log'),
-        format=format,
-        datefmt="%m/%d/%Y %H:%M:%S",
-        level=default_level)
+    # logging.basicConfig(  # unlike the root logger, a custom logger can’t be configured using basicConfig()
+    #     filename=os.path.join(output_dir, f'{time_str()}.log'),
+    #     format=format,
+    #     datefmt="%m/%d/%Y %H:%M:%S",
+    #     level=default_level)
 
     # print
     # file_handler = logging.FileHandler()
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(default_level)
-    console_handler.setFormatter(logging.Formatter(format))
-    logger.addHandler(console_handler)
+    # console_handler = logging.StreamHandler(sys.stdout)
+    # console_handler.setLevel(default_level)
+    # console_handler.setFormatter(logging.Formatter(format))
+    # logger.addHandler(console_handler)
 
     return logger, output_dir
 
