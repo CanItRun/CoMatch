@@ -1,9 +1,6 @@
-'''
- * Copyright (c) 2018, salesforce.com, inc.
- * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see LICENSE.txt file in the repo root or https://opensource.org/licenses/BSD-3-Clause
-'''
+"""
+ 去掉另外一个对比学习项看一下效果
+"""
 from __future__ import print_function
 import random
 
@@ -168,7 +165,7 @@ def train_one_epoch(epoch,
         Q = Q / Q.sum(1, keepdim=True)
 
         # contrastive loss
-        loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
+        loss_contrast = - (torch.log(sim_probs + 1e-7)).sum(1)
         loss_contrast = loss_contrast.mean()
 
         # unsupervised classification loss
