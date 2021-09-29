@@ -18,6 +18,8 @@ This is a PyTorch implementation of the <a href="https://arxiv.org/abs/2011.1118
 To perform semi-supervised learning on CIFAR-10 with 4 labels per class, run:
 <pre>python Train_CoMatch.py --n-labeled 40 --seed 1 </pre> 
 
+python Train_CoMatch.py --n-labeled 40
+
 The results using different random seeds are:
 
 seed| 1 | 2 | 3 | 4 | 5 | avg 

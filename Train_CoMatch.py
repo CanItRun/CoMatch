@@ -17,6 +17,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from lumo.proc.path import cache_dir
 
 from WideResNet import WideResnet
 from datasets.cifar import get_train_loader, get_val_loader
@@ -25,6 +26,7 @@ from utils import accuracy, setup_default_logging, AverageMeter, WarmupCosineLrS
 from lumo import Logger, Meter, AvgMeter
 
 log = Logger()
+log.add_log_dir('./log')
 
 
 def set_model(args):
@@ -78,6 +80,7 @@ def train_one_epoch(epoch,
                     queue_feats,
                     queue_probs,
                     queue_ptr,
+                    dlval=None
                     ):
     model.train()
     loss_x_meter = AverageMeter()
@@ -95,7 +98,7 @@ def train_one_epoch(epoch,
     dl_x, dl_u = iter(dltrain_x), iter(dltrain_u)
 
     avg = AvgMeter()
-    for it in range(n_iters):
+    for it in range(1, n_iters + 1):
         meter = Meter()
         ims_x_weak, lbs_x = next(dl_x)
         (ims_u_weak, ims_u_strong0, ims_u_strong1), lbs_u_real = next(dl_u)
@@ -179,12 +182,12 @@ def train_one_epoch(epoch,
         meter.mean.Lu = loss_u
         meter.mean.Lcs = loss_contrast
         with torch.no_grad():
+            meter.mean.Pm = pos_mask.float().mean()
+            meter.mean.Ax = (logits_x.argmax(dim=-1) == lbs_x).float().mean()
             meter.mean.um = mask.float().mean()
             meter.mean.Au = (logits_u_w.argmax(dim=-1) == lbs_u_real).float().mean()
             if mask.any():
                 meter.mean.Aum = (logits_u_w.argmax(dim=-1) == lbs_u_real)[mask].float().mean()
-
-            meter.mean.Aum = mask.float().mean()
 
         optim.zero_grad()
         loss.backward()
@@ -195,13 +198,18 @@ def train_one_epoch(epoch,
             with torch.no_grad():
                 ema_model_update(model, ema_model, args.ema_m)
 
-        corr_u_lb = (lbs_u_guess == lbs_u_real).float() * mask
-        meter.mean.Corr = corr_u_lb.sum()
-        meter.mean.CM = mask.sum()
+        corr_u_lb = (lbs_u_guess == lbs_u_real).float()[mask]
+        meter.mean.Corr = corr_u_lb.mean()
+        # meter.mean.CM = mask.float().mean()
         avg.update(meter)
-        log.inline(avg)
-    log.info(avg)
-    return loss_x_meter.avg, loss_u_meter.avg, loss_contrast_meter.avg, mask_meter.avg, pos_meter.avg, n_correct_u_lbs_meter.avg / n_strong_aug_meter.avg, queue_feats, queue_probs, queue_ptr, prob_list
+        log.inline(f'{it}/{n_iters}', avg)
+        if it % 100 == 0:
+            evaluate(model, ema_model, dlval)
+            model.train()
+            avg.clear()
+            log.newline()
+    log.newline()
+    return loss_x_meter.avg, loss_u_meter.avg, loss_contrast_meter.avg, mask_meter.avg, pos_meter.avg, n_correct_u_lbs_meter, queue_feats, queue_probs, queue_ptr, prob_list
 
 
 def evaluate(model, ema_model, dataloader):
@@ -230,13 +238,14 @@ def evaluate(model, ema_model, dataloader):
                 ema_top1_meter.update(top1.item())
                 meter.sum.Ae1 = top1
                 meter.sum.Ae5 = top5
-
+            avg.update(meter)
+    log.info('TEST', avg)
     return top1_meter.avg, ema_top1_meter.avg
 
 
 def main():
     parser = argparse.ArgumentParser(description='CoMatch Cifar Training')
-    parser.add_argument('--root', default='./data', type=str, help='dataset directory')
+    parser.add_argument('--root', default=cache_dir(), type=str, help='dataset directory')
     parser.add_argument('--wresnet-k', default=2, type=int,
                         help='width factor of wide resnet')
     parser.add_argument('--wresnet-n', default=28, type=int,
@@ -283,8 +292,12 @@ def main():
                         help='number of batches stored in memory bank')
     parser.add_argument('--exp-dir', default='CoMatch', type=str, help='experiment id')
     parser.add_argument('--checkpoint', default='', type=str, help='use pretrained model')
+    parser.add_argument('--device', default=0, type=int, help='use pretrained model')
 
     args = parser.parse_args()
+
+    from torch.cuda import set_device
+    set_device(args.device)
 
     logger, output_dir = setup_default_logging(args)
     logger.info(dict(args._get_kwargs()))
@@ -351,8 +364,8 @@ def main():
     logger.info('-----------start training--------------')
     for epoch in range(args.n_epoches):
 
-        loss_x, loss_u, loss_c, mask_mean, num_pos, guess_label_acc, queue_feats, queue_probs, queue_ptr, prob_list = \
-            train_one_epoch(epoch, **train_args, queue_feats=queue_feats, queue_probs=queue_probs, queue_ptr=queue_ptr)
+        train_one_epoch(epoch, **train_args, queue_feats=queue_feats, queue_probs=queue_probs,
+                        queue_ptr=queue_ptr, dlval=dlval)
 
         top1, ema_top1 = evaluate(model, ema_model, dlval)
 
