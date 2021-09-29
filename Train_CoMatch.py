@@ -198,7 +198,7 @@ def train_one_epoch(epoch,
             with torch.no_grad():
                 ema_model_update(model, ema_model, args.ema_m)
 
-        if mask:
+        if mask.any():
             corr_u_lb = (lbs_u_guess == lbs_u_real).float()[mask]
             meter.mean.Corr = corr_u_lb.mean()
         # meter.mean.CM = mask.float().mean()
