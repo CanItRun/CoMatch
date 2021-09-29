@@ -23,7 +23,7 @@ from utils import accuracy, setup_default_logging, AverageMeter, WarmupCosineLrS
 from lumo import Logger, Meter, AvgMeter
 
 log = Logger()
-log.add_log_dir('./log')
+log.add_log_dir('./log_b')
 
 
 def set_model(args):
