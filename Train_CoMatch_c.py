@@ -1,5 +1,5 @@
 """
- 去掉对比学习项看一下效果
+去掉对比学习项看一下效果
 """
 from __future__ import print_function
 import random
