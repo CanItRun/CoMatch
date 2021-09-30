@@ -1,9 +1,6 @@
-'''
- * Copyright (c) 2018, salesforce.com, inc.
- * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- * For full license text, see LICENSE.txt file in the repo root or https://opensource.org/licenses/BSD-3-Clause
-'''
+"""
+去掉 memory smooth
+"""
 from __future__ import print_function
 import random
 
@@ -26,7 +23,7 @@ from utils import accuracy, setup_default_logging, AverageMeter, WarmupCosineLrS
 from lumo import Logger, Meter, AvgMeter
 
 log = Logger()
-log.add_log_dir('./log')
+log.add_log_dir('./log_a')
 
 
 def set_model(args):
@@ -140,7 +137,7 @@ def train_one_epoch(epoch,
             if epoch > 0 or it > args.queue_batch:  # memory-smoothing
                 A = torch.exp(torch.mm(feats_u_w, queue_feats.t()) / args.temperature)
                 A = A / A.sum(1, keepdim=True)
-                probs = args.alpha * probs + (1 - args.alpha) * torch.mm(A, queue_probs)
+                probs = probs  # args.alpha * probs + (1 - args.alpha) * torch.mm(A, queue_probs)
 
             scores, lbs_u_guess = torch.max(probs, dim=1)
             mask = scores.ge(args.thr)
