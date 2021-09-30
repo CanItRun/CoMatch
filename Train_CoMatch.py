@@ -189,8 +189,6 @@ def train_one_epoch(epoch,
             if mask.any():
                 meter.mean.Aum = (logits_u_w.argmax(dim=-1) == lbs_u_real)[mask].float().mean()
 
-            meter.mean.Aum = mask.float().mean()
-
         optim.zero_grad()
         loss.backward()
         optim.step()
