@@ -25,6 +25,8 @@ from lumo import Logger, Meter, AvgMeter
 log = Logger()
 log.add_log_dir('./log_b')
 
+device = 'cpu'
+
 
 def set_model(args):
     model = WideResnet(n_classes=args.n_classes, k=args.wresnet_k, n=args.wresnet_n, proj=True)
@@ -34,19 +36,19 @@ def set_model(args):
         assert set(msg.missing_keys) == {"classifier.weight", "classifier.bias"}
         print('loaded from checkpoint: %s' % args.checkpoint)
     model.train()
-    model.cuda()
+    model.to(device)
 
     if args.eval_ema:
         ema_model = WideResnet(n_classes=args.n_classes, k=args.wresnet_k, n=args.wresnet_n, proj=True)
         for param_q, param_k in zip(model.parameters(), ema_model.parameters()):
             param_k.data.copy_(param_q.detach().data)  # initialize
             param_k.requires_grad = False  # not update by gradient for eval_net
-        ema_model.cuda()
+        ema_model.to(device)
         ema_model.eval()
     else:
         ema_model = None
 
-    criteria_x = nn.CrossEntropyLoss().cuda()
+    criteria_x = nn.CrossEntropyLoss().to(device)
     return model, criteria_x, ema_model
 
 
@@ -100,14 +102,14 @@ def train_one_epoch(epoch,
         ims_x_weak, lbs_x = next(dl_x)
         (ims_u_weak, ims_u_strong0, ims_u_strong1), lbs_u_real = next(dl_u)
 
-        lbs_x = lbs_x.cuda()
-        lbs_u_real = lbs_u_real.cuda()
+        lbs_x = lbs_x.to(device)
+        lbs_u_real = lbs_u_real.to(device)
 
         # --------------------------------------
         bt = ims_x_weak.size(0)
         btu = ims_u_weak.size(0)
 
-        imgs = torch.cat([ims_x_weak, ims_u_weak, ims_u_strong0, ims_u_strong1], dim=0).cuda()
+        imgs = torch.cat([ims_x_weak, ims_u_weak, ims_u_strong0, ims_u_strong1], dim=0).to(device)
         logits, features = model(imgs)
 
         logits_x = logits[:bt]
@@ -143,7 +145,7 @@ def train_one_epoch(epoch,
             mask = scores.ge(args.thr)
 
             feats_w = torch.cat([feats_u_w, feats_x], dim=0)
-            onehot = torch.zeros(bt, args.n_classes).cuda().scatter(1, lbs_x.view(-1, 1), 1)
+            onehot = torch.zeros(bt, args.n_classes).to(device).scatter(1, lbs_x.view(-1, 1), 1)
             probs_w = torch.cat([probs_orig, onehot], dim=0)
 
             # update memory bank
@@ -165,7 +167,7 @@ def train_one_epoch(epoch,
         Q = Q / Q.sum(1, keepdim=True)
 
         # contrastive loss
-        loss_contrast = - (torch.log(sim_probs + 1e-7)).sum(1)
+        loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
         loss_contrast = loss_contrast.mean()
 
         # unsupervised classification loss
@@ -219,8 +221,8 @@ def evaluate(model, ema_model, dataloader):
     with torch.no_grad():
         for ims, lbs in dataloader:
             meter = Meter()
-            ims = ims.cuda()
-            lbs = lbs.cuda()
+            ims = ims.to(device)
+            lbs = lbs.to(device)
 
             logits, _ = model(ims)
             scores = torch.softmax(logits, dim=1)
@@ -281,7 +283,7 @@ def main():
     parser.add_argument('--low-dim', type=int, default=64)
     parser.add_argument('--lam-c', type=float, default=1,
                         help='coefficient of contrastive loss')
-    parser.add_argument('--contrast-th', default=0.8, type=float,
+    parser.add_argument('--contrast-th', default=0.99, type=float,
                         help='pseudo label graph threshold')
     parser.add_argument('--thr', type=float, default=0.95,
                         help='pseudo label threshold')
@@ -293,9 +295,10 @@ def main():
     parser.add_argument('--device', default=0, type=int, help='use pretrained model')
 
     args = parser.parse_args()
-
+    global device
     from torch.cuda import set_device
     set_device(args.device)
+    device = args.device
 
     logger, output_dir = setup_default_logging(args)
     logger.info(dict(args._get_kwargs()))
@@ -336,8 +339,8 @@ def main():
 
     # memory bank
     args.queue_size = args.queue_batch * (args.mu + 1) * args.batchsize
-    queue_feats = torch.zeros(args.queue_size, args.low_dim).cuda()
-    queue_probs = torch.zeros(args.queue_size, args.n_classes).cuda()
+    queue_feats = torch.zeros(args.queue_size, args.low_dim).to(device)
+    queue_probs = torch.zeros(args.queue_size, args.n_classes).to(device)
     queue_ptr = 0
 
     # for distribution alignment

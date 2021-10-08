@@ -139,11 +139,17 @@ def train_one_epoch(epoch,
 
             if epoch > 0 or it > args.queue_batch:  # memory-smoothing
                 A = torch.exp(torch.mm(feats_u_w, queue_feats.t()) / args.temperature)
-                A = A / A.sum(1, keepdim=True)
-                probs = args.alpha * probs + (1 - args.alpha) * torch.mm(A, queue_probs)
+                A = A / A.sum(1, keepdim=True)  # 概率分布
+                sim_prob = torch.mm(A, queue_probs)
+                # sim_probs
+                probs = args.alpha * probs + (1 - args.alpha) * sim_prob
+                meter.mean.As = (sim_prob.argmax(dim=-1) == lbs_u_real).float().mean()
 
             scores, lbs_u_guess = torch.max(probs, dim=1)
             mask = scores.ge(args.thr)
+            if mask.any():
+                meter.mean.Amop = (probs_orig.argmax(dim=-1) == lbs_u_real)[mask].float().mean()
+                meter.mean.Ams = (sim_prob.argmax(dim=-1) == lbs_u_real)[mask].float().mean()
 
             feats_w = torch.cat([feats_u_w, feats_x], dim=0)
             onehot = torch.zeros(bt, args.n_classes).cuda().scatter(1, lbs_x.view(-1, 1), 1)
@@ -157,7 +163,7 @@ def train_one_epoch(epoch,
 
         # embedding similarity
         sim = torch.exp(torch.mm(feats_u_s0, feats_u_s1.t()) / args.temperature)
-        sim_probs = sim / sim.sum(1, keepdim=True)
+        sim_probs = sim / sim.sum(1, keepdim=True) # softmax
 
         # pseudo-label graph with self-loop
         Q = torch.mm(probs, probs.t())
