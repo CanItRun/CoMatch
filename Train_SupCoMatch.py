@@ -250,7 +250,7 @@ def train_one_epoch(epoch,
             # ./log/l.0.2110191754.log
 
             # memory = queue_feats
-            memory = torch.cat(graph_queue_feats)
+            memory = torch.cat([un_gquery, un_gkey, *graph_queue_feats])
             memory = memory[torch.randperm(len(memory))[:len(un_query) * 2]]
 
             anchor = batch_cosine_similarity(sup_gquery, memory)
