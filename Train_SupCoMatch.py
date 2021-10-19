@@ -234,6 +234,8 @@ def train_one_epoch(epoch,
             loss = contrastive_loss2(anchor, positive, negative, norm=True, temperature=args.temperature)
             return loss
 
+        Lgcs = graph_cs()
+
         # graph cs2
         def graph_cs2():
             # ./log/l.0.2110191754.log
@@ -246,7 +248,7 @@ def train_one_epoch(epoch,
             # loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
             # loss_contrast = loss_contrast.mean()
 
-        Lgcs2 = graph_cs2()
+        # Lgcs2 = graph_cs2()
 
         # unsupervised classification loss
         loss_u = - torch.sum((F.log_softmax(logits_u_s0, dim=1) * un_probs), dim=1) * mask.float()
