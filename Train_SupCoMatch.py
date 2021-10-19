@@ -71,6 +71,7 @@ def ema_model_update(model, ema_model, ema_m):
 
 
 queue_ptr = 0
+graph_queue_feats = []
 
 
 def train_one_epoch(epoch,
@@ -124,13 +125,16 @@ def train_one_epoch(epoch,
         btu = uxs.size(0)
 
         axs = torch.cat([xs, sxs_0, uxs, usxs_0, usxs_1], dim=0).cuda()
-        logits, features = model(axs)
+        logits, features, graph_features = model(axs)
 
         logits_x, logits_x_s0 = logits[:bt * 2].chunk(2)
         logits_u_w, logits_u_s0, logits_u_s1 = torch.split(logits[bt * 2:], btu)
 
         sup_query, sup_key = features[:bt * 2].chunk(2)
         un_w_query, un_query, un_key = torch.split(features[bt * 2:], btu)
+
+        sup_gquery, sup_gkey = graph_features[:bt * 2].chunk(2)
+        un_w_gquery, un_gquery, un_gkey = torch.split(graph_features[bt * 2:], btu)
 
         loss_x = criteria_x(logits_x, ys)
 
@@ -173,6 +177,11 @@ def train_one_epoch(epoch,
             queue_feats[queue_ptr:queue_ptr + n, :] = feats_w
             queue_probs[queue_ptr:queue_ptr + n, :] = probs_w
             queue_ptr = (queue_ptr + n) % args.queue_size
+
+            gfeats_w = torch.cat([un_w_gquery, sup_gquery], dim=0)
+            graph_queue_feats.append(gfeats_w)
+            if len(graph_queue_feats) > args.queue_size:
+                graph_queue_feats.pop(0)
 
         # pseudo-label graph with self-loop
         qk_graph = torch.mm(un_probs, un_probs.t())
@@ -217,8 +226,8 @@ def train_one_epoch(epoch,
             memory = memory[torch.randperm(len(memory))[:len(un_query)]]
 
             # ./log/l.0.2110191736.log
-            anchor = batch_cosine_similarity(un_query, un_query)
-            positive = batch_cosine_similarity(un_key, un_key)
+            anchor = batch_cosine_similarity(un_gquery, un_gquery)
+            positive = batch_cosine_similarity(un_gkey, un_gkey)
             negative = batch_cosine_similarity(memory, memory)
 
             # ./log/l.0.2110191739.log
@@ -239,11 +248,13 @@ def train_one_epoch(epoch,
         # graph cs2
         def graph_cs2():
             # ./log/l.0.2110191754.log
-            memory = queue_feats
+
+            # memory = queue_feats
+            memory = torch.cat(queue_feats)
             memory = memory[torch.randperm(len(memory))[:len(un_query) * 2]]
 
-            anchor = batch_cosine_similarity(un_w_query, memory)
-            positive = batch_cosine_similarity(un_key, memory)
+            anchor = batch_cosine_similarity(un_w_gquery, memory)
+            positive = batch_cosine_similarity(un_gkey, memory)
             loss = contrastive_loss2(anchor, positive, norm=True, temperature=args.temperature, qk_graph=qk_graph)
             return loss
             # contrastive loss
