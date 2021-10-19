@@ -250,7 +250,7 @@ def train_one_epoch(epoch,
             # ./log/l.0.2110191754.log
 
             # memory = queue_feats
-            memory = torch.cat(queue_feats)
+            memory = torch.cat(graph_queue_feats)
             memory = memory[torch.randperm(len(memory))[:len(un_query) * 2]]
 
             anchor = batch_cosine_similarity(un_w_gquery, memory)
@@ -261,7 +261,8 @@ def train_one_epoch(epoch,
             # loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
             # loss_contrast = loss_contrast.mean()
 
-        Lgcs2 = graph_cs2()
+        if len(graph_queue_feats) > 0:
+            Lgcs2 = graph_cs2()
 
         # unsupervised classification loss
         loss_u = - torch.sum((F.log_softmax(logits_u_s0, dim=1) * un_probs), dim=1) * mask.float()
