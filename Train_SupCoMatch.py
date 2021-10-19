@@ -12,6 +12,7 @@ import argparse
 import os
 import sys
 from lumo.contrib.nn.loss import contrastive_loss, sup_contrastive_loss, contrastive_loss2
+from lumo.contrib.nn.functional import batch_cosine_similarity
 
 import numpy as np
 
@@ -20,14 +21,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 from lumo.proc.path import cache_dir
 
-from WideResNet import WideResnet
+from WideResNet2 import WideResnet
 from datasets.cifar import get_train_loader, get_val_loader
 from utils import accuracy, setup_default_logging, AverageMeter, WarmupCosineLrScheduler
 
-from lumo import Logger, Meter, AvgMeter
+from lumo import Logger, Meter, AvgMeter, TrainerExperiment
+
+exp = TrainerExperiment('graph_comatch.CoMatch')
+exp.start()
 
 log = Logger()
-log.add_log_dir('./log')
+log.add_log_dir(exp.test_root)
 
 
 def set_model(args):
@@ -66,6 +70,9 @@ def ema_model_update(model, ema_model, ema_m):
         buffer_eval.copy_(buffer_train)
 
 
+queue_ptr = 0
+
+
 def train_one_epoch(epoch,
                     model,
                     ema_model,
@@ -80,9 +87,10 @@ def train_one_epoch(epoch,
                     logger,
                     queue_feats,
                     queue_probs,
-                    queue_ptr,
+
                     dlval=None
                     ):
+    global queue_ptr
     model.train()
     loss_x_meter = AverageMeter()
     loss_u_meter = AverageMeter()
@@ -101,6 +109,10 @@ def train_one_epoch(epoch,
     avg = AvgMeter()
     for it in range(1, n_iters + 1):
         meter = Meter()
+        loss_contrast2 = 0
+        Lgcs = 0
+        Lgcs2 = 0
+
         (xs, sxs_0, sxs_1), ys = next(dl_x)
         (uxs, usxs_0, usxs_1), unys = next(dl_u)
 
@@ -127,12 +139,12 @@ def train_one_epoch(epoch,
             un_probs = torch.softmax(logits_u_w, dim=1)
             sup_probs = torch.softmax(logits_x, dim=1)
             # DA
-            # prob_list.append(probs.mean(0))
-            # if len(prob_list) > 32:
-            #     prob_list.pop(0)
-            # prob_avg = torch.stack(prob_list, dim=0).mean(0)
-            # probs = probs / prob_avg
-            # probs = probs / probs.sum(dim=1, keepdim=True)
+            prob_list.append(un_probs.mean(0))
+            if len(prob_list) > 32:
+                prob_list.pop(0)
+            prob_avg = torch.stack(prob_list, dim=0).mean(0)
+            un_probs = un_probs / prob_avg
+            un_probs = un_probs / un_probs.sum(dim=1, keepdim=True)
 
             probs_orig = un_probs.clone()
 
@@ -163,46 +175,96 @@ def train_one_epoch(epoch,
             queue_ptr = (queue_ptr + n) % args.queue_size
 
         # pseudo-label graph with self-loop
-        # qk_graph = torch.mm(un_probs, un_probs.t())
-        # qk_graph.fill_diagonal_(1)
-        # pos_mask = (qk_graph >= args.contrast_th).float()
-        #
-        # qk_graph = qk_graph * pos_mask
-        # qk_graph = qk_graph / qk_graph.sum(1, keepdim=True)
-        #
-        query, key = torch.cat([sup_query, un_query]), torch.cat([sup_key, un_key])
-        probs = torch.cat([sup_probs, un_probs])
-        qk_graph = torch.mm(probs, probs.t())
-        pos_mask = (qk_graph >= args.contrast_th)
-
-        qys = torch.cat([ys, -torch.ones_like(unys)])
-        label_graph = qys.unsqueeze(0) == qys.unsqueeze(1)
-        label_graph[len(ys):] = 1
-        label_graph[:, len(ys):] = 1
-
-        pos_mask = pos_mask * label_graph  # 将 有监督部份不相等的标签的强制抹零
-
+        qk_graph = torch.mm(un_probs, un_probs.t())
         qk_graph.fill_diagonal_(1)
-        qk_graph = qk_graph * pos_mask.float()
-        qk_graph = qk_graph / (qk_graph.sum(1, keepdim=True) + 1e-10)
+        pos_mask = (qk_graph >= args.contrast_th).float()
 
-        loss_contrast = contrastive_loss2(query, key, temperature=args.temperature,
-                                          norm=True, qk_graph=qk_graph)
+        qk_graph = qk_graph * pos_mask
+        qk_graph = qk_graph / qk_graph.sum(1, keepdim=True)
+        #
+        # probs = torch.cat([sup_probs, un_probs])
+        # qk_graph = torch.mm(probs, probs.t())
+        # pos_mask = (qk_graph >= args.contrast_th)
+        #
+        #
+        #
+        # pos_mask = pos_mask * label_graph  # 将 有监督部份不相等的标签的强制抹零
+        #
+        # qk_graph.fill_diagonal_(1)
+        # qk_graph = qk_graph * pos_mask.float()
+        # qk_graph = qk_graph / (qk_graph.sum(1, keepdim=True) + 1e-10)
 
-        # contrastive loss
-        # loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
-        # loss_contrast = loss_contrast.mean()
+        loss_contrast = contrastive_loss2(un_query, un_key, temperature=args.temperature,
+                                          norm=False, qk_graph=qk_graph)
+
+        # semi cs
+        def semi_cs():
+            query, key = torch.cat([sup_query, un_query]), torch.cat([sup_key, un_key])
+            qys = torch.cat([ys, -torch.ones_like(unys)])
+            label_graph = qys.unsqueeze(0) == qys.unsqueeze(1)
+            label_graph[len(ys):] = 0
+            label_graph[:, len(ys):] = 0
+            label_graph.fill_diagonal_(1)
+
+            loss = contrastive_loss2(query, key, temperature=args.temperature,
+                                     norm=False, qk_graph=label_graph)
+            return loss
+
+        # graph cs
+        def graph_cs():
+            memory = queue_feats
+
+            memory = memory[torch.randperm(len(memory))[:len(un_query)]]
+
+            # ./log/l.0.2110191736.log
+            anchor = batch_cosine_similarity(un_query, un_query)
+            positive = batch_cosine_similarity(un_key, un_key)
+            negative = batch_cosine_similarity(memory, memory)
+
+            # ./log/l.0.2110191739.log
+            # anchor = batch_cosine_similarity(un_query, un_query)
+            # positive = batch_cosine_similarity(un_query, un_key)
+            # negative = batch_cosine_similarity(un_query, memory)
+
+            g_mask = (1 - torch.eye(len(un_query), dtype=torch.float, device=anchor.device))
+            anchor = anchor * g_mask
+            positive = positive * g_mask
+            negative = negative * g_mask
+
+            loss = contrastive_loss2(anchor, positive, negative, norm=True, temperature=args.temperature)
+            return loss
+
+        # Lgcs = graph_cs()
+
+        # graph cs2
+        def graph_cs2():
+            # ./log/l.0.2110191754.log
+            memory = queue_feats
+            memory = memory[torch.randperm(len(memory))[:len(un_query) * 2]]
+
+            anchor = batch_cosine_similarity(un_w_query, memory)
+            positive = batch_cosine_similarity(un_key, memory)
+            loss = contrastive_loss2(anchor, positive, norm=True, temperature=args.temperature, qk_graph=qk_graph)
+            return loss
+            # contrastive loss
+            # loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
+            # loss_contrast = loss_contrast.mean()
+
+        Lgcs2 = graph_cs2()
 
         # unsupervised classification loss
         loss_u = - torch.sum((F.log_softmax(logits_u_s0, dim=1) * un_probs), dim=1) * mask.float()
         loss_u = loss_u.mean()
 
-        loss = loss_x + args.lam_u * loss_u + args.lam_c * loss_contrast
+        loss = loss_x + args.lam_u * loss_u + args.lam_c * loss_contrast + loss_contrast2 + Lgcs + Lgcs2
 
         meter.mean.Lall = loss
         meter.mean.Lx = loss_x
         meter.mean.Lu = loss_u
         meter.mean.Lcs = loss_contrast
+        meter.mean.Lscs = loss_contrast2
+        meter.mean.Lgcs = Lgcs
+        meter.mean.Lgcs = Lgcs2
         with torch.no_grad():
             meter.mean.Pm = pos_mask.float().mean()
             meter.mean.Ax = (logits_x.argmax(dim=-1) == ys).float().mean()
@@ -389,7 +451,7 @@ def main():
     for epoch in range(args.n_epoches):
 
         train_one_epoch(epoch, **train_args, queue_feats=queue_feats, queue_probs=queue_probs,
-                        queue_ptr=queue_ptr, dlval=dlval)
+                        dlval=dlval)
 
         top1, ema_top1 = evaluate(model, ema_model, dlval)
 

@@ -171,6 +171,7 @@ class WideResnetBackbone(nn.Module):
             elif isinstance(m, nn.Linear):
                 m.bias.data.zero_()
 
+
 class Normalize(nn.Module):
 
     def __init__(self, power=2):
@@ -181,7 +182,8 @@ class Normalize(nn.Module):
         norm = x.pow(self.power).sum(1, keepdim=True).pow(1. / self.power)
         out = x.div(norm)
         return out
-    
+
+
 class WideResnet(nn.Module):
     '''
     for wide-resnet-28-10, the definition should be WideResnet(n_classes, 10, 28)
@@ -192,7 +194,9 @@ class WideResnet(nn.Module):
         self.n_layers, self.k = n, k
         self.backbone = WideResnetBackbone(k=k, n=n)
         self.classifier = nn.Linear(64 * self.k, n_classes, bias=True)
-        
+
+        feature_dim = 64 * self.k
+        self.feature_dim = feature_dim
         self.proj = proj
         if proj:
             self.l2norm = Normalize(2)
@@ -201,20 +205,24 @@ class WideResnet(nn.Module):
             self.relu_mlp = nn.LeakyReLU(inplace=True, negative_slope=0.1)
             self.fc2 = nn.Linear(64 * self.k, low_dim)
 
-
+        self.graph_head = nn.Sequential(
+            nn.Linear(feature_dim, feature_dim),
+            nn.LeakyReLU(inplace=True, negative_slope=0.1),
+            nn.Linear(feature_dim, 128),
+        )
 
     def forward(self, x):
         feat = self.backbone(x)[-1]
         feat = torch.mean(feat, dim=(2, 3))
         out = self.classifier(feat)
-        
-        if self.proj:
-            feat = self.fc1(feat)
-            feat = self.relu_mlp(feat)       
-            feat = self.fc2(feat)
 
-            feat = self.l2norm(feat)         
-            return out,feat
+        if self.proj:
+            feat1 = self.fc1(feat)
+            feat1 = self.relu_mlp(feat1)
+            feat1 = self.fc2(feat1)
+
+            feat1 = self.l2norm(feat1)
+            return out, feat1, self.l2norm(self.graph_head(feat))
         else:
             return out
 

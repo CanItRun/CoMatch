@@ -66,6 +66,9 @@ def ema_model_update(model, ema_model, ema_m):
         buffer_eval.copy_(buffer_train)
 
 
+queue_ptr = 0
+
+
 def train_one_epoch(epoch,
                     model,
                     ema_model,
@@ -80,9 +83,10 @@ def train_one_epoch(epoch,
                     logger,
                     queue_feats,
                     queue_probs,
-                    queue_ptr,
+                    # queue_ptr,
                     dlval=None
                     ):
+    global queue_ptr
     model.train()
     loss_x_meter = AverageMeter()
     loss_u_meter = AverageMeter()
@@ -101,7 +105,7 @@ def train_one_epoch(epoch,
     avg = AvgMeter()
     for it in range(1, n_iters + 1):
         meter = Meter()
-        ims_x_weak, lbs_x = next(dl_x)
+        (ims_x_weak, _, _), lbs_x = next(dl_x)
         (ims_u_weak, ims_u_strong0, ims_u_strong1), lbs_u_real = next(dl_u)
 
         lbs_x = lbs_x.cuda()
@@ -129,19 +133,19 @@ def train_one_epoch(epoch,
 
             probs = torch.softmax(logits_u_w, dim=1)
             # DA
-            # prob_list.append(probs.mean(0))
-            # if len(prob_list) > 32:
-            #     prob_list.pop(0)
-            # prob_avg = torch.stack(prob_list, dim=0).mean(0)
-            # probs = probs / prob_avg
-            # probs = probs / probs.sum(dim=1, keepdim=True)
+            prob_list.append(probs.mean(0))
+            if len(prob_list) > 32:
+                prob_list.pop(0)
+            prob_avg = torch.stack(prob_list, dim=0).mean(0)
+            probs = probs / prob_avg
+            probs = probs / probs.sum(dim=1, keepdim=True)
 
             probs_orig = probs.clone()
 
             if epoch > 0 or it > args.queue_batch:  # memory-smoothing
                 # A = torch.exp(torch.mm(feats_u_w, queue_feats.t()) / args.temperature)
                 # A = A / A.sum(1, keepdim=True)  # 概率分布
-                A = torch.softmax(torch.mm(feats_u_w, queue_feats.t()) / args.temperature,dim=-1)
+                A = torch.softmax(torch.mm(feats_u_w, queue_feats.t()) / args.temperature, dim=-1)
 
                 sim_prob = torch.mm(A, queue_probs)
                 # sim_probs
@@ -166,8 +170,7 @@ def train_one_epoch(epoch,
 
         # embedding similarity
         sim = torch.exp(torch.mm(feats_u_s0, feats_u_s1.t()) / args.temperature)
-        sim_probs = sim / sim.sum(1, keepdim=True) # softmax
-
+        sim_probs = sim / sim.sum(1, keepdim=True)  # softmax
 
         # pseudo-label graph with self-loop
         Q = torch.mm(probs, probs.t())
@@ -177,7 +180,7 @@ def train_one_epoch(epoch,
         Q = Q * pos_mask
         Q = Q / Q.sum(1, keepdim=True)
 
-        loss_contrast = contrastive_loss2(feats_u_s0,feats_u_s1,temperature=args.temperature, norm=True,qk_graph=Q)
+        loss_contrast = contrastive_loss2(feats_u_s0, feats_u_s1, temperature=args.temperature, norm=True, qk_graph=Q)
 
         # contrastive loss
         # loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
@@ -379,7 +382,7 @@ def main():
     for epoch in range(args.n_epoches):
 
         train_one_epoch(epoch, **train_args, queue_feats=queue_feats, queue_probs=queue_probs,
-                        queue_ptr=queue_ptr, dlval=dlval)
+                        dlval=dlval)
 
         top1, ema_top1 = evaluate(model, ema_model, dlval)
 
