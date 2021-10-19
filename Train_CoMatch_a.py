@@ -1,6 +1,9 @@
-"""
-去掉 memory smooth
-"""
+'''
+ * Copyright (c) 2018, salesforce.com, inc.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ * For full license text, see LICENSE.txt file in the repo root or https://opensource.org/licenses/BSD-3-Clause
+'''
 from __future__ import print_function
 import random
 
@@ -8,6 +11,7 @@ import time
 import argparse
 import os
 import sys
+from lumo.contrib.nn.loss import contrastive_loss, sup_contrastive_loss, contrastive_loss2
 
 import numpy as np
 
@@ -23,7 +27,7 @@ from utils import accuracy, setup_default_logging, AverageMeter, WarmupCosineLrS
 from lumo import Logger, Meter, AvgMeter
 
 log = Logger()
-log.add_log_dir('./log_a')
+log.add_log_dir('./log')
 
 
 def set_model(args):
@@ -62,6 +66,9 @@ def ema_model_update(model, ema_model, ema_m):
         buffer_eval.copy_(buffer_train)
 
 
+queue_ptr = 0
+
+
 def train_one_epoch(epoch,
                     model,
                     ema_model,
@@ -76,9 +83,10 @@ def train_one_epoch(epoch,
                     logger,
                     queue_feats,
                     queue_probs,
-                    queue_ptr,
+                    # queue_ptr,
                     dlval=None
                     ):
+    global queue_ptr
     model.train()
     loss_x_meter = AverageMeter()
     loss_u_meter = AverageMeter()
@@ -97,7 +105,7 @@ def train_one_epoch(epoch,
     avg = AvgMeter()
     for it in range(1, n_iters + 1):
         meter = Meter()
-        ims_x_weak, lbs_x = next(dl_x)
+        (ims_x_weak, _, _), lbs_x = next(dl_x)
         (ims_u_weak, ims_u_strong0, ims_u_strong1), lbs_u_real = next(dl_u)
 
         lbs_x = lbs_x.cuda()
@@ -135,12 +143,20 @@ def train_one_epoch(epoch,
             probs_orig = probs.clone()
 
             if epoch > 0 or it > args.queue_batch:  # memory-smoothing
-                A = torch.exp(torch.mm(feats_u_w, queue_feats.t()) / args.temperature)
-                A = A / A.sum(1, keepdim=True)
-                probs = probs  # args.alpha * probs + (1 - args.alpha) * torch.mm(A, queue_probs)
+                # A = torch.exp(torch.mm(feats_u_w, queue_feats.t()) / args.temperature)
+                # A = A / A.sum(1, keepdim=True)  # 概率分布
+                A = torch.softmax(torch.mm(feats_u_w, queue_feats.t()) / args.temperature, dim=-1)
+
+                sim_prob = torch.mm(A, queue_probs)
+                # sim_probs
+                probs = args.alpha * probs + (1 - args.alpha) * sim_prob
+                meter.mean.As = (sim_prob.argmax(dim=-1) == lbs_u_real).float().mean()
 
             scores, lbs_u_guess = torch.max(probs, dim=1)
             mask = scores.ge(args.thr)
+            if mask.any():
+                meter.mean.Amop = (probs_orig.argmax(dim=-1) == lbs_u_real)[mask].float().mean()
+                meter.mean.Ams = (sim_prob.argmax(dim=-1) == lbs_u_real)[mask].float().mean()
 
             feats_w = torch.cat([feats_u_w, feats_x], dim=0)
             onehot = torch.zeros(bt, args.n_classes).cuda().scatter(1, lbs_x.view(-1, 1), 1)
@@ -154,7 +170,7 @@ def train_one_epoch(epoch,
 
         # embedding similarity
         sim = torch.exp(torch.mm(feats_u_s0, feats_u_s1.t()) / args.temperature)
-        sim_probs = sim / sim.sum(1, keepdim=True)
+        sim_probs = sim / sim.sum(1, keepdim=True)  # softmax
 
         # pseudo-label graph with self-loop
         Q = torch.mm(probs, probs.t())
@@ -164,9 +180,11 @@ def train_one_epoch(epoch,
         Q = Q * pos_mask
         Q = Q / Q.sum(1, keepdim=True)
 
+        loss_contrast = contrastive_loss2(feats_u_s0, feats_u_s1, temperature=args.temperature, norm=True, qk_graph=Q)
+
         # contrastive loss
-        loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
-        loss_contrast = loss_contrast.mean()
+        # loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
+        # loss_contrast = loss_contrast.mean()
 
         # unsupervised classification loss
         loss_u = - torch.sum((F.log_softmax(logits_u_s0, dim=1) * probs), dim=1) * mask.float()
@@ -201,11 +219,12 @@ def train_one_epoch(epoch,
         # meter.mean.CM = mask.float().mean()
         avg.update(meter)
         log.inline(f'{it}/{n_iters}', avg)
-        if it % 100 == 0:
-            evaluate(model, ema_model, dlval)
-            model.train()
-            avg.clear()
+        if it % 150 == 0:
+            # evaluate(model, ema_model, dlval)
+            # model.train()
+            # avg.clear()
             log.newline()
+    avg.clear()
     log.newline()
     return loss_x_meter.avg, loss_u_meter.avg, loss_contrast_meter.avg, mask_meter.avg, pos_meter.avg, n_correct_u_lbs_meter, queue_feats, queue_probs, queue_ptr, prob_list
 
@@ -274,7 +293,7 @@ def main():
                         help='weight decay')
     parser.add_argument('--momentum', type=float, default=0.9,
                         help='momentum for optimizer')
-    parser.add_argument('--seed', type=int, default=1,
+    parser.add_argument('--seed', type=int, default=123,
                         help='seed for random behaviors, no seed if negtive')
 
     parser.add_argument('--temperature', default=0.2, type=float, help='softmax temperature')
@@ -363,7 +382,7 @@ def main():
     for epoch in range(args.n_epoches):
 
         train_one_epoch(epoch, **train_args, queue_feats=queue_feats, queue_probs=queue_probs,
-                        queue_ptr=queue_ptr, dlval=dlval)
+                        dlval=dlval)
 
         top1, ema_top1 = evaluate(model, ema_model, dlval)
 

@@ -139,12 +139,12 @@ def train_one_epoch(epoch,
             un_probs = torch.softmax(logits_u_w, dim=1)
             sup_probs = torch.softmax(logits_x, dim=1)
             # DA
-            # prob_list.append(probs.mean(0))
-            # if len(prob_list) > 32:
-            #     prob_list.pop(0)
-            # prob_avg = torch.stack(prob_list, dim=0).mean(0)
-            # probs = probs / prob_avg
-            # probs = probs / probs.sum(dim=1, keepdim=True)
+            prob_list.append(un_probs.mean(0))
+            if len(prob_list) > 32:
+                prob_list.pop(0)
+            prob_avg = torch.stack(prob_list, dim=0).mean(0)
+            un_probs = un_probs / prob_avg
+            un_probs = un_probs / un_probs.sum(dim=1, keepdim=True)
 
             probs_orig = un_probs.clone()
 
