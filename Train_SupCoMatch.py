@@ -253,9 +253,10 @@ def train_one_epoch(epoch,
             memory = torch.cat(graph_queue_feats)
             memory = memory[torch.randperm(len(memory))[:len(un_query) * 2]]
 
-            anchor = batch_cosine_similarity(un_w_gquery, memory)
-            positive = batch_cosine_similarity(un_gkey, memory)
-            loss = contrastive_loss2(anchor, positive, norm=True, temperature=args.temperature, qk_graph=qk_graph)
+            anchor = batch_cosine_similarity(sup_gquery, memory)
+            positive = batch_cosine_similarity(sup_gkey, memory)
+            gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
+            loss = contrastive_loss2(anchor, positive, norm=True, temperature=0.7, qk_graph=gqk)
             return loss
             # contrastive loss
             # loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
