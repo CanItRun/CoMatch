@@ -1,5 +1,5 @@
 """
- 去掉另外一个对比学习项看一下效果
+去掉另外一个对比学习项看一下效果
 """
 from __future__ import print_function
 import random
@@ -134,7 +134,7 @@ def train_one_epoch(epoch,
 
             probs_orig = probs.clone()
 
-            if epoch > 0 or it > args.queue_batch:  # memory-smoothing
+            if epoch > 0 or it > args.queue_batch:  # memory-smoothing # Key improvement
                 A = torch.exp(torch.mm(feats_u_w, queue_feats.t()) / args.temperature)
                 A = A / A.sum(1, keepdim=True)
                 probs = args.alpha * probs + (1 - args.alpha) * torch.mm(A, queue_probs)
@@ -145,7 +145,7 @@ def train_one_epoch(epoch,
             feats_w = torch.cat([feats_u_w, feats_x], dim=0)
             onehot = torch.zeros(bt, args.n_classes).cuda().scatter(1, lbs_x.view(-1, 1), 1)
             probs_w = torch.cat([probs_orig, onehot], dim=0)
-
+            
             # update memory bank
             n = bt + btu
             queue_feats[queue_ptr:queue_ptr + n, :] = feats_w
@@ -165,7 +165,7 @@ def train_one_epoch(epoch,
         Q = Q / Q.sum(1, keepdim=True)
 
         # contrastive loss
-        loss_contrast = - (torch.log(sim_probs + 1e-7)).sum(1)
+        loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
         loss_contrast = loss_contrast.mean()
 
         # unsupervised classification loss
@@ -281,7 +281,7 @@ def main():
     parser.add_argument('--low-dim', type=int, default=64)
     parser.add_argument('--lam-c', type=float, default=1,
                         help='coefficient of contrastive loss')
-    parser.add_argument('--contrast-th', default=0.8, type=float,
+    parser.add_argument('--contrast-th', default=0.99, type=float,
                         help='pseudo label graph threshold')
     parser.add_argument('--thr', type=float, default=0.95,
                         help='pseudo label threshold')
