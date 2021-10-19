@@ -10,29 +10,34 @@ from datasets import transform as T
 from datasets.randaugment import RandomAugment
 from datasets.sampler import RandomSampler, BatchSampler
 
+
 class TwoCropsTransform:
     """Take 2 random augmentations of one image."""
 
-    def __init__(self,trans_weak,trans_strong):       
+    def __init__(self, trans_weak, trans_strong):
         self.trans_weak = trans_weak
         self.trans_strong = trans_strong
+
     def __call__(self, x):
         x1 = self.trans_weak(x)
         x2 = self.trans_strong(x)
         return [x1, x2]
-    
+
+
 class ThreeCropsTransform:
     """Take 3 random augmentations of one image."""
 
-    def __init__(self,trans_weak,trans_strong0,trans_strong1):       
+    def __init__(self, trans_weak, trans_strong0, trans_strong1):
         self.trans_weak = trans_weak
         self.trans_strong0 = trans_strong0
         self.trans_strong1 = trans_strong1
+
     def __call__(self, x):
         x1 = self.trans_weak(x)
         x2 = self.trans_strong0(x)
         x3 = self.trans_strong1(x)
         return [x1, x2, x3]
+
 
 def load_data_train(L=250, dataset='CIFAR10', dspth='./data'):
     if dataset == 'CIFAR10':
@@ -118,7 +123,6 @@ def compute_mean_var():
     print('var: ', var)
 
 
-
 class Cifar(Dataset):
     def __init__(self, dataset, data, labels, mode):
         super(Cifar, self).__init__()
@@ -144,25 +148,25 @@ class Cifar(Dataset):
             RandomAugment(2, 10),
             T.Normalize(mean, std),
             T.ToTensor(),
-        ])        
+        ])
         trans_strong1 = transforms.Compose([
             transforms.ToPILImage(),
-            transforms.RandomResizedCrop(32, scale=(0.2, 1.)),     
+            transforms.RandomResizedCrop(32, scale=(0.2, 1.)),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomApply([
-                transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  
+                transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)
             ], p=0.8),
-            transforms.RandomGrayscale(p=0.2),        
+            transforms.RandomGrayscale(p=0.2),
             transforms.ToTensor(),
             transforms.Normalize(mean, std),
-        ])                    
+        ])
         if self.mode == 'train_x':
-            self.trans = trans_weak
+            self.trans = ThreeCropsTransform(trans_weak, trans_strong0, trans_strong1)
         elif self.mode == 'train_u_comatch':
-            self.trans = ThreeCropsTransform(trans_weak, trans_strong0, trans_strong1)               
+            self.trans = ThreeCropsTransform(trans_weak, trans_strong0, trans_strong1)
         elif self.mode == 'train_u_fixmatch':
-            self.trans = TwoCropsTransform(trans_weak, trans_strong0)    
-        else:  
+            self.trans = TwoCropsTransform(trans_weak, trans_strong0)
+        else:
             self.trans = T.Compose([
                 T.Resize((32, 32)),
                 T.Normalize(mean, std),
@@ -199,10 +203,10 @@ def get_train_loader(dataset, batch_size, mu, n_iters_per_epoch, L, root='data',
         dataset=dataset,
         data=data_u,
         labels=label_u,
-        mode='train_u_%s'%method
+        mode='train_u_%s' % method
     )
     sampler_u = RandomSampler(ds_u, replacement=True, num_samples=mu * n_iters_per_epoch * batch_size)
-    #sampler_u = RandomSampler(ds_u, replacement=False)
+    # sampler_u = RandomSampler(ds_u, replacement=False)
     batch_sampler_u = BatchSampler(sampler_u, batch_size * mu, drop_last=True)
     dl_u = torch.utils.data.DataLoader(
         ds_u,
@@ -230,5 +234,3 @@ def get_val_loader(dataset, batch_size, num_workers, pin_memory=True, root='data
         pin_memory=pin_memory
     )
     return dl
-
-
