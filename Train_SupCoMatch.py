@@ -322,7 +322,7 @@ def evaluate(model, ema_model, dataloader):
             ims = ims.cuda()
             lbs = lbs.cuda()
 
-            logits, _ = model(ims)
+            logits, *_ = model(ims)
             scores = torch.softmax(logits, dim=1)
             top1, top5 = accuracy(scores, lbs, (1, 5))
             top1_meter.update(top1.item())
@@ -330,7 +330,7 @@ def evaluate(model, ema_model, dataloader):
             meter.sum.A5 = top5
 
             if ema_model is not None:
-                logits, _ = ema_model(ims)
+                logits, *_ = ema_model(ims)
                 scores = torch.softmax(logits, dim=1)
                 top1, top5 = accuracy(scores, lbs, (1, 5))
                 ema_top1_meter.update(top1.item())
