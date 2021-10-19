@@ -165,8 +165,9 @@ def train_one_epoch(epoch,
             queue_ptr = (queue_ptr + n) % args.queue_size
 
         # embedding similarity
-        # sim = torch.exp(torch.mm(feats_u_s0, feats_u_s1.t()) / args.temperature)
-        # sim_probs = sim / sim.sum(1, keepdim=True)
+        sim = torch.exp(torch.mm(feats_u_s0, feats_u_s1.t()) / args.temperature)
+        sim_probs = sim / sim.sum(1, keepdim=True) # softmax
+
 
         # pseudo-label graph with self-loop
         Q = torch.mm(probs, probs.t())

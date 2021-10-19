@@ -10,6 +10,11 @@ This is a PyTorch implementation of the <a href="https://arxiv.org/abs/2011.1118
 	year={2020}
 }</pre>
 
+python语法
+    ↓
+编程设计模式
+    ↓
+
 ### Requirements:
 * PyTorch ≥ 1.4
 * pip install tensorboard_logger
