@@ -66,6 +66,9 @@ def ema_model_update(model, ema_model, ema_m):
         buffer_eval.copy_(buffer_train)
 
 
+queue_ptr = 0
+
+
 def train_one_epoch(epoch,
                     model,
                     ema_model,
@@ -80,9 +83,10 @@ def train_one_epoch(epoch,
                     logger,
                     queue_feats,
                     queue_probs,
-                    queue_ptr,
+                    # queue_ptr,
                     dlval=None
                     ):
+    global queue_ptr
     model.train()
     loss_x_meter = AverageMeter()
     loss_u_meter = AverageMeter()
@@ -129,12 +133,12 @@ def train_one_epoch(epoch,
 
             probs = torch.softmax(logits_u_w, dim=1)
             # DA
-            # prob_list.append(probs.mean(0))
-            # if len(prob_list) > 32:
-            #     prob_list.pop(0)
-            # prob_avg = torch.stack(prob_list, dim=0).mean(0)
-            # probs = probs / prob_avg
-            # probs = probs / probs.sum(dim=1, keepdim=True)
+            prob_list.append(probs.mean(0))
+            if len(prob_list) > 32:
+                prob_list.pop(0)
+            prob_avg = torch.stack(prob_list, dim=0).mean(0)
+            probs = probs / prob_avg
+            probs = probs / probs.sum(dim=1, keepdim=True)
 
             probs_orig = probs.clone()
 
@@ -378,7 +382,7 @@ def main():
     for epoch in range(args.n_epoches):
 
         train_one_epoch(epoch, **train_args, queue_feats=queue_feats, queue_probs=queue_probs,
-                        queue_ptr=queue_ptr, dlval=dlval)
+                        dlval=dlval)
 
         top1, ema_top1 = evaluate(model, ema_model, dlval)
 
