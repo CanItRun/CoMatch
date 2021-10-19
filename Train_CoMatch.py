@@ -101,7 +101,7 @@ def train_one_epoch(epoch,
     avg = AvgMeter()
     for it in range(1, n_iters + 1):
         meter = Meter()
-        ims_x_weak, lbs_x = next(dl_x)
+        (ims_x_weak, _, _), lbs_x = next(dl_x)
         (ims_u_weak, ims_u_strong0, ims_u_strong1), lbs_u_real = next(dl_u)
 
         lbs_x = lbs_x.cuda()
@@ -141,7 +141,7 @@ def train_one_epoch(epoch,
             if epoch > 0 or it > args.queue_batch:  # memory-smoothing
                 # A = torch.exp(torch.mm(feats_u_w, queue_feats.t()) / args.temperature)
                 # A = A / A.sum(1, keepdim=True)  # 概率分布
-                A = torch.softmax(torch.mm(feats_u_w, queue_feats.t()) / args.temperature,dim=-1)
+                A = torch.softmax(torch.mm(feats_u_w, queue_feats.t()) / args.temperature, dim=-1)
 
                 sim_prob = torch.mm(A, queue_probs)
                 # sim_probs
@@ -166,8 +166,7 @@ def train_one_epoch(epoch,
 
         # embedding similarity
         sim = torch.exp(torch.mm(feats_u_s0, feats_u_s1.t()) / args.temperature)
-        sim_probs = sim / sim.sum(1, keepdim=True) # softmax
-
+        sim_probs = sim / sim.sum(1, keepdim=True)  # softmax
 
         # pseudo-label graph with self-loop
         Q = torch.mm(probs, probs.t())
@@ -177,7 +176,7 @@ def train_one_epoch(epoch,
         Q = Q * pos_mask
         Q = Q / Q.sum(1, keepdim=True)
 
-        loss_contrast = contrastive_loss2(feats_u_s0,feats_u_s1,temperature=args.temperature, norm=True,qk_graph=Q)
+        loss_contrast = contrastive_loss2(feats_u_s0, feats_u_s1, temperature=args.temperature, norm=True, qk_graph=Q)
 
         # contrastive loss
         # loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
