@@ -208,7 +208,7 @@ class WideResnet(nn.Module):
         self.graph_head = nn.Sequential(
             nn.Linear(feature_dim, feature_dim),
             nn.LeakyReLU(inplace=True, negative_slope=0.1),
-            nn.Linear(feature_dim, 128),
+            nn.Linear(feature_dim, low_dim),
         )
 
     def forward(self, x):

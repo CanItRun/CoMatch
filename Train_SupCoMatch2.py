@@ -19,7 +19,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from lumo.contrib.nn.functional import batch_cosine_similarity
 
-from WideResNet import WideResnet
+from WideResNet2 import WideResnet
 from datasets.cifar import get_train_loader, get_val_loader
 from utils import accuracy, setup_default_logging, AverageMeter, WarmupCosineLrScheduler
 from lumo import Logger, AvgMeter, Meter
@@ -115,7 +115,7 @@ def train_one_epoch(epoch,
         btu = unxs.size(0)
 
         imgs = torch.cat([xs, sxs_0, sxs_1, unxs, usxs_0, usxs_1], dim=0).cuda()
-        logits, features = model(imgs)
+        logits, features, gfeatures = model(imgs)
 
         logits_x, _, _ = logits[:bt * 3].chunk(3)
         logits_u_w, logits_u_s0, logits_u_s1 = torch.split(logits[bt * 3:], btu)
@@ -123,7 +123,7 @@ def train_one_epoch(epoch,
         sup_w_query, sup_query, sup_key = features[:bt * 3].chunk(3)
         un_w_query, un_query, un_key = torch.split(features[bt * 3:], btu)
 
-        loss_x = criteria_x(logits_x, ys)
+        loss_x = criteria_x(logits_x.detach(), ys)
 
         with torch.no_grad():
             logits_u_w = logits_u_w.detach()
@@ -180,34 +180,6 @@ def train_one_epoch(epoch,
         # unsupervised classification loss
         loss_u = - torch.sum((F.log_softmax(logits_u_s0, dim=1) * un_probs), dim=1) * mask
         loss_u = loss_u.mean()
-
-        def graph_cs():
-            memory = queue_feats
-
-            memory = memory[torch.randperm(len(memory))[:len(un_query)]]
-
-            # ./log/l.0.2110191736.log
-            anchor = batch_cosine_similarity(un_gquery, un_gquery)
-            positive = batch_cosine_similarity(un_gkey, un_gkey)
-            negative = batch_cosine_similarity(memory, memory)
-
-            # ./log/l.0.2110191739.log
-            # anchor = batch_cosine_similarity(un_query, un_query)
-            # positive = batch_cosine_similarity(un_query, un_key)
-            # negative = batch_cosine_similarity(un_query, memory)
-
-            # g_mask = (1 - torch.eye(len(un_query),
-            # dtype=torch.float, device=anchor.device))
-            # anchor = anchor * g_mask
-            # positive = positive * g_mask
-            # negative = negative * g_mask
-
-            loss = contrastive_loss2(anchor, positive, negative,
-                                     norm=True,
-                                     temperature=args.temperature)
-            return loss
-
-        # Lgcs = graph_cs()
 
         def choice_(tensor, size=128):
             return tensor[torch.randperm(len(tensor))[:size]]
@@ -329,14 +301,14 @@ def evaluate(model, ema_model, dataloader):
             ims = ims.cuda()
             lbs = lbs.cuda()
 
-            logits, _ = model(ims)
+            logits, *_ = model(ims)
             scores = torch.softmax(logits, dim=1)
             top1, top5 = accuracy(scores, lbs, (1, 5))
             top1_meter.update(top1.item())
             meter.sum.A1 = top1
             meter.sum.A5 = top5
             if ema_model is not None:
-                logits, _ = ema_model(ims)
+                logits, *_ = ema_model(ims)
                 scores = torch.softmax(logits, dim=1)
                 top1, top5 = accuracy(scores, lbs, (1, 5))
                 ema_top1_meter.update(top1.item())
