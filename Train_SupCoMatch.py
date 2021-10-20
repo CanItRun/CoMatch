@@ -250,18 +250,20 @@ def train_one_epoch(epoch,
             # ./log/l.0.2110191754.log
 
             # memory = queue_feats
-            memory = torch.cat(queue_feats)
+            memory = torch.cat([un_gquery, un_gkey, *graph_queue_feats])
             memory = memory[torch.randperm(len(memory))[:len(un_query) * 2]]
 
-            anchor = batch_cosine_similarity(un_w_gquery, memory)
-            positive = batch_cosine_similarity(un_gkey, memory)
-            loss = contrastive_loss2(anchor, positive, norm=True, temperature=args.temperature, qk_graph=qk_graph)
-            return loss
+            anchor = batch_cosine_similarity(sup_gquery, memory)
+            positive = batch_cosine_similarity(sup_gkey, memory)
+            gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
+            loss = contrastive_loss2(anchor, positive, norm=True, temperature=0.2, qk_graph=gqk)
+            return loss * 0.5
             # contrastive loss
             # loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
             # loss_contrast = loss_contrast.mean()
 
-        Lgcs2 = graph_cs2()
+        if len(graph_queue_feats) > 0:
+            Lgcs2 = graph_cs2()
 
         # unsupervised classification loss
         loss_u = - torch.sum((F.log_softmax(logits_u_s0, dim=1) * un_probs), dim=1) * mask.float()
@@ -321,7 +323,7 @@ def evaluate(model, ema_model, dataloader):
             ims = ims.cuda()
             lbs = lbs.cuda()
 
-            logits, _ = model(ims)
+            logits, *_ = model(ims)
             scores = torch.softmax(logits, dim=1)
             top1, top5 = accuracy(scores, lbs, (1, 5))
             top1_meter.update(top1.item())
@@ -329,7 +331,7 @@ def evaluate(model, ema_model, dataloader):
             meter.sum.A5 = top5
 
             if ema_model is not None:
-                logits, _ = ema_model(ims)
+                logits, *_ = ema_model(ims)
                 scores = torch.softmax(logits, dim=1)
                 top1, top5 = accuracy(scores, lbs, (1, 5))
                 ema_top1_meter.update(top1.item())
