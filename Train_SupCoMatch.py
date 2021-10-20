@@ -289,7 +289,7 @@ def train_one_epoch(epoch,
             # loss_contrast = loss_contrast.mean()
 
         if len(graph_queue_feats) > 0:
-            # Lgcs2 = graph_cs2()
+            Lgcs2 = graph_cs2()
             Lgcs3 = graph_cs3()
 
         # unsupervised classification loss
