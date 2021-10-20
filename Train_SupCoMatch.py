@@ -268,7 +268,7 @@ def train_one_epoch(epoch,
             gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
             loss = contrastive_loss2(anchor, positive,
                                      memory=None,
-                                     norm=True, temperature=0.2, qk_graph=gqk)
+                                     norm=True, temperature=0.7, qk_graph=gqk)
             return loss * 0.5
 
         def graph_cs3():
@@ -286,7 +286,7 @@ def train_one_epoch(epoch,
             # gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
             loss = contrastive_loss2(anchor, positive,
                                      memory=None,
-                                     norm=True, temperature=0.2, qk_graph=qk_graph)
+                                     norm=True, temperature=0.7, qk_graph=qk_graph)
             return loss * 0.5
             # contrastive loss
             # loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
