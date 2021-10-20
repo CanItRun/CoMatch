@@ -17,6 +17,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from lumo.contrib.nn.functional import batch_cosine_similarity
 
 from WideResNet import WideResnet
 from datasets.cifar import get_train_loader, get_val_loader
@@ -24,8 +25,13 @@ from utils import accuracy, setup_default_logging, AverageMeter, WarmupCosineLrS
 from lumo import Logger, AvgMeter, Meter
 from lumo.contrib.nn.loss import contrastive_loss2
 
+from lumo import TrainerExperiment
+
+exp = TrainerExperiment('supcomatch.CoMatch')
+exp.start()
+
 log = Logger()
-log.add_log_dir('./log_raw')
+log.add_log_dir(exp.test_root)
 import tensorboard_logger
 
 
@@ -114,7 +120,7 @@ def train_one_epoch(epoch,
         logits_x, _, _ = logits[:bt * 3].chunk(3)
         logits_u_w, logits_u_s0, logits_u_s1 = torch.split(logits[bt * 3:], btu)
 
-        sup_w_query, _, _ = features[:bt * 3].chunk(3)
+        sup_w_query, sup_query, sup_key = features[:bt * 3].chunk(3)
         un_w_query, un_query, un_key = torch.split(features[bt * 3:], btu)
 
         loss_x = criteria_x(logits_x, ys)
@@ -175,7 +181,90 @@ def train_one_epoch(epoch,
         loss_u = - torch.sum((F.log_softmax(logits_u_s0, dim=1) * un_probs), dim=1) * mask
         loss_u = loss_u.mean()
 
-        loss = loss_x + args.lam_u * loss_u + args.lam_c * loss_contrast
+        def graph_cs():
+            memory = queue_feats
+
+            memory = memory[torch.randperm(len(memory))[:len(un_query)]]
+
+            # ./log/l.0.2110191736.log
+            anchor = batch_cosine_similarity(un_gquery, un_gquery)
+            positive = batch_cosine_similarity(un_gkey, un_gkey)
+            negative = batch_cosine_similarity(memory, memory)
+
+            # ./log/l.0.2110191739.log
+            # anchor = batch_cosine_similarity(un_query, un_query)
+            # positive = batch_cosine_similarity(un_query, un_key)
+            # negative = batch_cosine_similarity(un_query, memory)
+
+            # g_mask = (1 - torch.eye(len(un_query),
+            # dtype=torch.float, device=anchor.device))
+            # anchor = anchor * g_mask
+            # positive = positive * g_mask
+            # negative = negative * g_mask
+
+            loss = contrastive_loss2(anchor, positive, negative,
+                                     norm=True,
+                                     temperature=args.temperature)
+            return loss
+
+        # Lgcs = graph_cs()
+
+        def choice_(tensor, size=128):
+            return tensor[torch.randperm(len(tensor))[:size]]
+
+        # graph cs2
+        def graph_cs2():
+            # ./log/l.0.2110191754.log
+
+            memory = queue_feats
+            # memory = torch.cat([un_query, un_key, queue_feats])
+            # pos_memory = memory[torch.randperm(len(memory))[:128]]
+            pos_memory = torch.cat([choice_(un_query),
+                                    choice_(un_key),
+                                    choice_(memory)])
+            pos_memory = choice_(pos_memory, 256)
+            # neg_memory = memory[torch.randperm(len(memory))[:128]]
+            # memory = torch.cat([un_query, un_key, memory])
+
+            anchor = batch_cosine_similarity(sup_query, pos_memory)
+            positive = batch_cosine_similarity(sup_key, pos_memory)
+            # negative = batch_cosine_similarity(sup_key, neg_memory)
+            gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
+            loss = contrastive_loss2(anchor, positive,
+                                     memory=None,
+                                     norm=True,
+                                     temperature=0.2,
+                                     qk_graph=gqk)
+            return loss
+
+        def graph_cs3():
+            # ./log/l.0.2110191754.log
+
+            # memory = queue_feats
+            memory = queue_feats
+            pos_memory = torch.cat([choice_(un_query),
+                                    choice_(un_key),
+                                    choice_(memory)])
+            pos_memory = choice_(pos_memory, 256)
+            # neg_memory = memory[torch.randperm(len(memory))[:512]]
+
+            anchor = batch_cosine_similarity(un_query, pos_memory)
+            positive = batch_cosine_similarity(un_key, pos_memory)
+            # negative = batch_cosine_similarity(un_key, neg_memory)
+
+            # gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
+            loss = contrastive_loss2(anchor, positive,
+                                     memory=None,
+                                     norm=True,
+                                     temperature=0.2,
+                                     qk_graph=Q)
+            return loss
+
+        Lgcs1 = graph_cs2()
+        Lgcs2 = graph_cs3()
+
+        # loss = loss_x + args.lam_u * loss_u + loss_contrast
+        loss = loss_x + args.lam_u * loss_u + Lgcs1 + Lgcs2
 
         optim.zero_grad()
         loss.backward()
@@ -186,6 +275,8 @@ def train_one_epoch(epoch,
             meter.mean.Lx = loss_x
             meter.mean.Lu = loss_u
             meter.mean.Lcs = loss_contrast
+            meter.mean.Lgcs1 = Lgcs1
+            meter.mean.Lgcs2 = Lgcs2
             meter.mean.Pm = pos_mask.float().mean()
             meter.mean.Pm = pos_mask.float().mean()
             meter.mean.Ax = (logits_x.argmax(dim=-1) == ys).float().mean()
