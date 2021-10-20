@@ -260,10 +260,10 @@ def train_one_epoch(epoch,
 
             anchor = batch_cosine_similarity(sup_query, pos_memory)
             positive = batch_cosine_similarity(sup_key, pos_memory)
-            negative = batch_cosine_similarity(sup_key, neg_memory)
+            # negative = batch_cosine_similarity(sup_key, neg_memory)
             gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
             loss = contrastive_loss2(anchor, positive,
-                                     memory=negative,
+                                     memory=None,
                                      norm=True, temperature=0.2, qk_graph=gqk)
             return loss * 0.5
 
@@ -277,11 +277,11 @@ def train_one_epoch(epoch,
 
             anchor = batch_cosine_similarity(un_query, pos_memory)
             positive = batch_cosine_similarity(un_key, pos_memory)
-            negative = batch_cosine_similarity(sup_key, neg_memory)
+            # negative = batch_cosine_similarity(sup_key, neg_memory)
 
             # gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
             loss = contrastive_loss2(anchor, positive,
-                                     memory=negative,
+                                     memory=None,
                                      norm=True, temperature=0.2, qk_graph=qk_graph)
             return loss * 0.5
             # contrastive loss
@@ -289,7 +289,7 @@ def train_one_epoch(epoch,
             # loss_contrast = loss_contrast.mean()
 
         if len(graph_queue_feats) > 0:
-            Lgcs2 = graph_cs2()
+            # Lgcs2 = graph_cs2()
             Lgcs3 = graph_cs3()
 
         # unsupervised classification loss
