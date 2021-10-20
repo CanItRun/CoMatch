@@ -272,6 +272,7 @@ def train_one_epoch(epoch,
         lr_schdlr.step()
 
         with torch.no_grad():
+            meter.mean.Lall = loss
             meter.mean.Lx = loss_x
             meter.mean.Lu = loss_u
             meter.mean.Lcs = loss_contrast
