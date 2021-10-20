@@ -126,7 +126,7 @@ def train_one_epoch(epoch,
         bt = xs.size(0)
         btu = uxs.size(0)
 
-        axs = torch.cat([xs, sxs_0, uxs, usxs_0, usxs_1], dim=0).cuda()
+        axs = torch.cat([sxs_0, sxs_1, uxs, usxs_0, usxs_1], dim=0).cuda()
         logits, features, graph_features = model(axs)
 
         logits_x, logits_x_s0 = logits[:bt * 2].chunk(2)
