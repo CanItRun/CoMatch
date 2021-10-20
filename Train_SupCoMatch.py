@@ -132,10 +132,10 @@ def train_one_epoch(epoch,
         logits_x, _, _ = logits[:bt * 3].chunk(3)
         logits_u_w, logits_u_s0, logits_u_s1 = torch.split(logits[bt * 3:], btu)
 
-        sup_query, _, sup_key = features[:bt * 3].chunk(3)
+        sup_w_query, sup_query, sup_key = features[:bt * 3].chunk(3)
         un_w_query, un_query, un_key = torch.split(features[bt * 3:], btu)
 
-        _, sup_gquery, sup_gkey = graph_features[:bt * 3].chunk(3)
+        sup_w_gquery, sup_gquery, sup_gkey = graph_features[:bt * 3].chunk(3)
         un_w_gquery, un_gquery, un_gkey = torch.split(graph_features[bt * 3:], btu)
 
         loss_x = criteria_x(logits_x, ys)
@@ -170,7 +170,7 @@ def train_one_epoch(epoch,
                 meter.mean.Amop = (probs_orig.argmax(dim=-1) == unys)[mask].float().mean()
                 meter.mean.Ams = (sim_prob.argmax(dim=-1) == unys)[mask].float().mean()
 
-            feats_w = torch.cat([un_w_query, sup_query], dim=0)
+            feats_w = torch.cat([un_w_query, sup_w_query], dim=0)
             onehot = torch.zeros(bt, args.n_classes).cuda().scatter(1, ys.view(-1, 1), 1)
             probs_w = torch.cat([probs_orig, onehot], dim=0)
 
@@ -180,7 +180,7 @@ def train_one_epoch(epoch,
             queue_probs[queue_ptr:queue_ptr + n, :] = probs_w
             queue_ptr = (queue_ptr + n) % args.queue_size
 
-            gfeats_w = torch.cat([un_w_gquery, sup_gquery], dim=0)
+            gfeats_w = torch.cat([un_w_gquery, sup_w_gquery], dim=0)
             graph_queue_feats.append(gfeats_w)
             if len(graph_queue_feats) > args.queue_size:
                 graph_queue_feats.pop(0)
@@ -206,8 +206,8 @@ def train_one_epoch(epoch,
         # qk_graph = qk_graph * pos_mask.float()
         # qk_graph = qk_graph / (qk_graph.sum(1, keepdim=True) + 1e-10)
 
-        loss_contrast = contrastive_loss2(un_query, un_key, temperature=args.temperature,
-                                          norm=False, qk_graph=qk_graph)
+        # loss_contrast = contrastive_loss2(un_query, un_key, temperature=args.temperature,
+        #                                   norm=False, qk_graph=qk_graph)
 
         # semi cs
         def semi_cs():
@@ -303,9 +303,9 @@ def train_one_epoch(epoch,
             # loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
             # loss_contrast = loss_contrast.mean()
 
-        # if len(graph_queue_feats) > 0:
-        #     Lgcs2 = graph_cs2()
-        #     Lgcs3 = graph_cs3()
+        if len(graph_queue_feats) > 0:
+            Lgcs2 = graph_cs2()
+            Lgcs3 = graph_cs3()
 
         # unsupervised classification loss
         loss_u = - torch.sum((F.log_softmax(logits_u_s0, dim=1) * un_probs), dim=1) * mask.float()
