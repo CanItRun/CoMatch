@@ -132,7 +132,7 @@ def train_one_epoch(epoch,
         logits_x, _, _ = logits[:bt * 3].chunk(3)
         logits_u_w, logits_u_s0, logits_u_s1 = torch.split(logits[bt * 3:], btu)
 
-        _, sup_query, sup_key = features[:bt * 3].chunk(3)
+        sup_query, _, sup_key = features[:bt * 3].chunk(3)
         un_w_query, un_query, un_key = torch.split(features[bt * 3:], btu)
 
         _, sup_gquery, sup_gkey = graph_features[:bt * 3].chunk(3)
@@ -238,12 +238,15 @@ def train_one_epoch(epoch,
             # positive = batch_cosine_similarity(un_query, un_key)
             # negative = batch_cosine_similarity(un_query, memory)
 
-            g_mask = (1 - torch.eye(len(un_query), dtype=torch.float, device=anchor.device))
-            anchor = anchor * g_mask
-            positive = positive * g_mask
-            negative = negative * g_mask
+            # g_mask = (1 - torch.eye(len(un_query),
+            # dtype=torch.float, device=anchor.device))
+            # anchor = anchor * g_mask
+            # positive = positive * g_mask
+            # negative = negative * g_mask
 
-            loss = contrastive_loss2(anchor, positive, negative, norm=True, temperature=args.temperature)
+            loss = contrastive_loss2(anchor, positive, negative,
+                                     norm=True,
+                                     temperature=args.temperature)
             return loss
 
         # Lgcs = graph_cs()
@@ -258,7 +261,9 @@ def train_one_epoch(epoch,
             memory = queue_feats
             # memory = torch.cat([un_query, un_key, queue_feats])
             # pos_memory = memory[torch.randperm(len(memory))[:128]]
-            pos_memory = torch.cat([choice_(un_query), choice_(un_key), choice_(memory)])
+            pos_memory = torch.cat([choice_(un_query),
+                                    choice_(un_key),
+                                    choice_(memory)])
             # neg_memory = memory[torch.randperm(len(memory))[:128]]
             # memory = torch.cat([un_query, un_key, memory])
 
@@ -268,15 +273,19 @@ def train_one_epoch(epoch,
             gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
             loss = contrastive_loss2(anchor, positive,
                                      memory=None,
-                                     norm=True, temperature=0.7, qk_graph=gqk)
-            return loss * 0.5
+                                     norm=True,
+                                     temperature=0.7,
+                                     qk_graph=gqk)
+            return loss
 
         def graph_cs3():
             # ./log/l.0.2110191754.log
 
             # memory = queue_feats
             memory = queue_feats
-            pos_memory = torch.cat([choice_(sup_query), choice_(sup_key), choice_(memory)])
+            pos_memory = torch.cat([choice_(sup_query),
+                                    choice_(sup_key),
+                                    choice_(memory)])
             # neg_memory = memory[torch.randperm(len(memory))[:512]]
 
             anchor = batch_cosine_similarity(un_query, pos_memory)
@@ -286,8 +295,10 @@ def train_one_epoch(epoch,
             # gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
             loss = contrastive_loss2(anchor, positive,
                                      memory=None,
-                                     norm=True, temperature=0.7, qk_graph=qk_graph)
-            return loss * 0.5
+                                     norm=True,
+                                     temperature=0.7,
+                                     qk_graph=qk_graph)
+            return loss
             # contrastive loss
             # loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
             # loss_contrast = loss_contrast.mean()
