@@ -254,8 +254,8 @@ def train_one_epoch(epoch,
 
             # memory = queue_feats
             memory = torch.cat([un_query, un_key, queue_feats])
-            pos_memory = memory[torch.randperm(len(memory))[:128]]
-            neg_memory = memory[torch.randperm(len(memory))[:128]]
+            pos_memory = memory[torch.randperm(len(memory))[:256]]
+            neg_memory = memory[torch.randperm(len(memory))[:256]]
             # memory = torch.cat([un_query, un_key, memory])
 
             anchor = batch_cosine_similarity(sup_query, pos_memory)
@@ -272,8 +272,8 @@ def train_one_epoch(epoch,
 
             # memory = queue_feats
             memory = torch.cat([sup_query, sup_key, queue_feats])
-            pos_memory = memory[torch.randperm(len(memory))[:128]]
-            neg_memory = memory[torch.randperm(len(memory))[:128]]
+            pos_memory = memory[torch.randperm(len(memory))[:256]]
+            neg_memory = memory[torch.randperm(len(memory))[:256]]
 
             anchor = batch_cosine_similarity(un_query, pos_memory)
             positive = batch_cosine_similarity(un_key, pos_memory)
