@@ -254,13 +254,17 @@ def train_one_epoch(epoch,
 
             # memory = queue_feats
             memory = torch.cat([un_query, un_key, queue_feats])
-            memory = memory[torch.randperm(len(memory))[:128]]
+            pos_memory = memory[torch.randperm(len(memory))[:128]]
+            neg_memory = memory[torch.randperm(len(memory))[:128]]
             # memory = torch.cat([un_query, un_key, memory])
 
-            anchor = batch_cosine_similarity(sup_query, memory)
-            positive = batch_cosine_similarity(sup_key, memory)
+            anchor = batch_cosine_similarity(sup_query, pos_memory)
+            positive = batch_cosine_similarity(sup_key, pos_memory)
+            negative = batch_cosine_similarity(sup_key, neg_memory)
             gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
-            loss = contrastive_loss2(anchor, positive, norm=True, temperature=0.2, qk_graph=gqk)
+            loss = contrastive_loss2(anchor, positive,
+                                     memory=negative,
+                                     norm=True, temperature=0.2, qk_graph=gqk)
             return loss * 0.5
 
         def graph_cs3():
@@ -268,12 +272,17 @@ def train_one_epoch(epoch,
 
             # memory = queue_feats
             memory = torch.cat([sup_query, sup_key, queue_feats])
-            memory = memory[torch.randperm(len(memory))[:128]]
+            pos_memory = memory[torch.randperm(len(memory))[:128]]
+            neg_memory = memory[torch.randperm(len(memory))[:128]]
 
-            anchor = batch_cosine_similarity(un_query, memory)
-            positive = batch_cosine_similarity(un_key, memory)
+            anchor = batch_cosine_similarity(un_query, pos_memory)
+            positive = batch_cosine_similarity(un_key, pos_memory)
+            negative = batch_cosine_similarity(sup_key, neg_memory)
+
             # gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
-            loss = contrastive_loss2(anchor, positive, norm=True, temperature=0.2, qk_graph=qk_graph)
+            loss = contrastive_loss2(anchor, positive,
+                                     memory=negative,
+                                     norm=True, temperature=0.2, qk_graph=qk_graph)
             return loss * 0.5
             # contrastive loss
             # loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
