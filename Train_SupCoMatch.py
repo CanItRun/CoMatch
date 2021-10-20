@@ -192,6 +192,7 @@ def train_one_epoch(epoch,
 
         qk_graph = qk_graph * pos_mask
         qk_graph = qk_graph / qk_graph.sum(1, keepdim=True)
+
         #
         # probs = torch.cat([sup_probs, un_probs])
         # qk_graph = torch.mm(probs, probs.t())
@@ -205,8 +206,8 @@ def train_one_epoch(epoch,
         # qk_graph = qk_graph * pos_mask.float()
         # qk_graph = qk_graph / (qk_graph.sum(1, keepdim=True) + 1e-10)
 
-        loss_contrast = contrastive_loss2(un_query, un_key, temperature=args.temperature,
-                                          norm=False, qk_graph=qk_graph)
+        # loss_contrast = contrastive_loss2(un_query, un_key, temperature=args.temperature,
+        #                                   norm=False, qk_graph=qk_graph)
 
         # semi cs
         def semi_cs():
@@ -252,7 +253,7 @@ def train_one_epoch(epoch,
             # ./log/l.0.2110191754.log
 
             # memory = queue_feats
-            memory = torch.cat([un_query, un_key, *graph_queue_feats])
+            memory = torch.cat([un_query, un_key, queue_feats])
             memory = memory[torch.randperm(len(memory))[:128]]
             # memory = torch.cat([un_query, un_key, memory])
 
@@ -266,13 +267,13 @@ def train_one_epoch(epoch,
             # ./log/l.0.2110191754.log
 
             # memory = queue_feats
-            memory = torch.cat([sup_query, sup_key, *graph_queue_feats])
+            memory = torch.cat([sup_query, sup_key, queue_feats])
             memory = memory[torch.randperm(len(memory))[:128]]
 
             anchor = batch_cosine_similarity(un_query, memory)
             positive = batch_cosine_similarity(un_key, memory)
-            gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
-            loss = contrastive_loss2(anchor, positive, norm=True, temperature=0.2, qk_graph=gqk)
+            # gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
+            loss = contrastive_loss2(anchor, positive, norm=True, temperature=0.2, qk_graph=qk_graph)
             return loss * 0.5
             # contrastive loss
             # loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
