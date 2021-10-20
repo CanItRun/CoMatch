@@ -110,9 +110,11 @@ def train_one_epoch(epoch,
     avg = AvgMeter()
     for it in range(1, n_iters + 1):
         meter = Meter()
+        loss_contrast = 0
         loss_contrast2 = 0
         Lgcs = 0
         Lgcs2 = 0
+        Lgcs3 = 0
 
         (xs, sxs_0, sxs_1), ys = next(dl_x)
         (uxs, usxs_0, usxs_1), unys = next(dl_u)
@@ -250,34 +252,50 @@ def train_one_epoch(epoch,
             # ./log/l.0.2110191754.log
 
             # memory = queue_feats
-            memory = torch.cat([un_gquery, un_gkey, *graph_queue_feats])
-            memory = memory[torch.randperm(len(memory))[:len(un_query) * 2]]
+            memory = torch.cat([un_query, un_key, *graph_queue_feats])
+            memory = memory[torch.randperm(len(memory))[:128]]
+            # memory = torch.cat([un_query, un_key, memory])
 
-            anchor = batch_cosine_similarity(sup_gquery, memory)
-            positive = batch_cosine_similarity(sup_gkey, memory)
+            anchor = batch_cosine_similarity(sup_query, memory)
+            positive = batch_cosine_similarity(sup_key, memory)
             gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
-            loss = contrastive_loss2(anchor, positive, norm=True, temperature=0.7, qk_graph=gqk)
-            return loss
+            loss = contrastive_loss2(anchor, positive, norm=True, temperature=0.2, qk_graph=gqk)
+            return loss * 0.5
+
+        def graph_cs3():
+            # ./log/l.0.2110191754.log
+
+            # memory = queue_feats
+            memory = torch.cat([sup_query, sup_key, *graph_queue_feats])
+            memory = memory[torch.randperm(len(memory))[:128]]
+
+            anchor = batch_cosine_similarity(un_query, memory)
+            positive = batch_cosine_similarity(un_key, memory)
+            gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
+            loss = contrastive_loss2(anchor, positive, norm=True, temperature=0.2, qk_graph=gqk)
+            return loss * 0.5
             # contrastive loss
             # loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
             # loss_contrast = loss_contrast.mean()
 
         if len(graph_queue_feats) > 0:
             Lgcs2 = graph_cs2()
+            Lgcs3 = graph_cs3()
 
         # unsupervised classification loss
         loss_u = - torch.sum((F.log_softmax(logits_u_s0, dim=1) * un_probs), dim=1) * mask.float()
         loss_u = loss_u.mean()
 
-        loss = loss_x + args.lam_u * loss_u + args.lam_c * loss_contrast + loss_contrast2 + Lgcs + Lgcs2
+        loss = loss_x + args.lam_u * loss_u + args.lam_c * loss_contrast + loss_contrast2 + Lgcs + Lgcs2 + Lgcs3
 
         meter.mean.Lall = loss
         meter.mean.Lx = loss_x
         meter.mean.Lu = loss_u
         meter.mean.Lcs = loss_contrast
         meter.mean.Lscs = loss_contrast2
-        meter.mean.Lgcs = Lgcs
-        meter.mean.Lgcs = Lgcs2
+        # meter.mean.Lgcs = Lgcs
+        meter.mean.Lgcs2 = Lgcs2
+        meter.mean.Lgcs3 = Lgcs3
         with torch.no_grad():
             meter.mean.Pm = pos_mask.float().mean()
             meter.mean.Ax = (logits_x.argmax(dim=-1) == ys).float().mean()
