@@ -126,17 +126,17 @@ def train_one_epoch(epoch,
         bt = xs.size(0)
         btu = uxs.size(0)
 
-        axs = torch.cat([sxs_0, sxs_1, uxs, usxs_0, usxs_1], dim=0).cuda()
+        axs = torch.cat([xs, sxs_0, sxs_1, uxs, usxs_0, usxs_1], dim=0).cuda()
         logits, features, graph_features = model(axs)
 
-        logits_x, logits_x_s0 = logits[:bt * 2].chunk(2)
-        logits_u_w, logits_u_s0, logits_u_s1 = torch.split(logits[bt * 2:], btu)
+        logits_x, _, _ = logits[:bt * 3].chunk(3)
+        logits_u_w, logits_u_s0, logits_u_s1 = torch.split(logits[bt * 3:], btu)
 
-        sup_query, sup_key = features[:bt * 2].chunk(2)
-        un_w_query, un_query, un_key = torch.split(features[bt * 2:], btu)
+        _, sup_query, sup_key = features[:bt * 3].chunk(3)
+        un_w_query, un_query, un_key = torch.split(features[bt * 3:], btu)
 
-        sup_gquery, sup_gkey = graph_features[:bt * 2].chunk(2)
-        un_w_gquery, un_gquery, un_gkey = torch.split(graph_features[bt * 2:], btu)
+        _, sup_gquery, sup_gkey = graph_features[:bt * 3].chunk(3)
+        un_w_gquery, un_gquery, un_gkey = torch.split(graph_features[bt * 3:], btu)
 
         loss_x = criteria_x(logits_x, ys)
 
