@@ -156,6 +156,7 @@ def train_one_epoch(epoch,
                 meter.mean.Py90 = np.percentile(pscores.tolist(), 90)
                 meter.mean.Py95 = np.percentile(pscores.tolist(), 95)
             unmask = unmask == False
+            pscores = scores[unmask]
 
             meter.mean.Pn25 = np.percentile(pscores.tolist(), 25)
             meter.mean.Pn75 = np.percentile(pscores.tolist(), 75)
@@ -256,9 +257,9 @@ def train_one_epoch(epoch,
         # loss = loss_x + args.lam_u * loss_u + loss_contrast
 
         # if epoch < 3:
-        # loss = loss_x + args.lam_u * loss_u + Lgcs1 + Lgcs2 + loss_contrast
+        loss = loss_x + args.lam_u * loss_u + Lgcs1 + Lgcs2 + loss_contrast
         # else:
-        loss = loss_x + args.lam_u * loss_u + loss_contrast
+        # loss = loss_x + args.lam_u * loss_u + loss_contrast
 
         optim.zero_grad()
         loss.backward()
