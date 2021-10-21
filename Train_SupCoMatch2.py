@@ -149,6 +149,11 @@ def train_one_epoch(epoch,
             scores, lbs_u_guess = torch.max(un_probs, dim=1)
             mask = scores.ge(args.thr).float()
 
+            meter.mean.P25 = np.percentile(scores.tolist(), 25)
+            meter.mean.P75 = np.percentile(scores.tolist(), 75)
+            meter.mean.P90 = np.percentile(scores.tolist(), 90)
+            meter.mean.P95 = np.percentile(scores.tolist(), 95)
+
             w_query = torch.cat([un_w_query, sup_w_query], dim=0)
             onehot = torch.zeros(bt, args.n_classes).cuda().scatter(1, ys.view(-1, 1), 1)
             w_probs = torch.cat([probs_orig, onehot], dim=0)
