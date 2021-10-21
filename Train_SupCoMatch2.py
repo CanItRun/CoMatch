@@ -205,7 +205,7 @@ def train_one_epoch(epoch,
             loss = contrastive_loss2(anchor, positive,
                                      memory=None,
                                      norm=True,
-                                     temperature=0.2,
+                                     temperature=0.7,
                                      qk_graph=gqk)
             return loss
 
@@ -228,7 +228,7 @@ def train_one_epoch(epoch,
             loss = contrastive_loss2(anchor, positive,
                                      memory=None,
                                      norm=True,
-                                     temperature=0.2,
+                                     temperature=0.7,
                                      qk_graph=Q)
             return loss
 
