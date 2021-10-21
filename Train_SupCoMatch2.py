@@ -155,6 +155,12 @@ def train_one_epoch(epoch,
                 meter.mean.Py75 = np.percentile(pscores.tolist(), 75)
                 meter.mean.Py90 = np.percentile(pscores.tolist(), 90)
                 meter.mean.Py95 = np.percentile(pscores.tolist(), 95)
+            unmask = unmask == False
+
+            meter.mean.Pn25 = np.percentile(pscores.tolist(), 25)
+            meter.mean.Pn75 = np.percentile(pscores.tolist(), 75)
+            meter.mean.Pn90 = np.percentile(pscores.tolist(), 90)
+            meter.mean.Pn95 = np.percentile(pscores.tolist(), 95)
 
             meter.mean.P25 = np.percentile(scores.tolist(), 25)
             meter.mean.P75 = np.percentile(scores.tolist(), 75)
