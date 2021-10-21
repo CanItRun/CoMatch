@@ -148,6 +148,13 @@ def train_one_epoch(epoch,
 
             scores, lbs_u_guess = torch.max(un_probs, dim=1)
             mask = scores.ge(args.thr).float()
+            unmask = (lbs_u_guess == unys)
+            if unmask.any():
+                pscores = scores[unmask]
+                meter.mean.Py25 = np.percentile(pscores.tolist(), 25)
+                meter.mean.Py75 = np.percentile(pscores.tolist(), 75)
+                meter.mean.Py90 = np.percentile(pscores.tolist(), 90)
+                meter.mean.Py95 = np.percentile(pscores.tolist(), 95)
 
             meter.mean.P25 = np.percentile(scores.tolist(), 25)
             meter.mean.P75 = np.percentile(scores.tolist(), 75)
