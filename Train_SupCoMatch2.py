@@ -123,7 +123,7 @@ def train_one_epoch(epoch,
         sup_w_query, sup_query, sup_key = features[:bt * 3].chunk(3)
         un_w_query, un_query, un_key = torch.split(features[bt * 3:], btu)
 
-        loss_x = criteria_x(logits_x.detach(), ys)
+        loss_x = criteria_x(logits_x, ys)
 
         with torch.no_grad():
             logits_u_w = logits_u_w.detach()
