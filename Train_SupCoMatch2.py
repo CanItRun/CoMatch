@@ -29,7 +29,6 @@ from lumo import TrainerExperiment
 
 exp = TrainerExperiment('supcomatch.CoMatch')
 exp.start()
-exp.add
 log = Logger()
 log.add_log_dir(exp.test_root)
 import tensorboard_logger
