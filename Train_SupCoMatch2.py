@@ -257,6 +257,11 @@ def train_one_epoch(epoch,
         Lgcs1 = graph_cs2()
         Lgcs2 = graph_cs3()
 
+        def strategy0():
+            exp.add_tag('loss0')
+            loss = loss_x + args.lam_u * loss_u + loss_contrast
+            return loss
+
         def strategy1():
             exp.add_tag('loss1')
             loss = loss_x + args.lam_u * loss_u + Lgcs1 + Lgcs2 + loss_contrast
@@ -280,8 +285,9 @@ def train_one_epoch(epoch,
 
             return loss
 
+        loss = strategy0()
         # loss = strategy1()
-        loss = strategy2()
+        # loss = strategy2()
         # loss = strategy3()
 
         optim.zero_grad()
