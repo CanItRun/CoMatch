@@ -287,8 +287,8 @@ def train_one_epoch(epoch,
 
         # loss = strategy0()
         # loss = strategy1()
-        loss = strategy2()
-        # loss = strategy3()
+        # loss = strategy2()
+        loss = strategy3()
 
         optim.zero_grad()
         loss.backward()
