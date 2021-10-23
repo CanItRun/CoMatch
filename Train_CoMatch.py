@@ -11,23 +11,25 @@ import time
 import argparse
 import os
 import sys
-from lumo.contrib.nn.loss import contrastive_loss, sup_contrastive_loss, contrastive_loss2
 
 import numpy as np
-
+from lumo.proc.path import cache_dir
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from lumo.proc.path import cache_dir
 
 from WideResNet import WideResnet
 from datasets.cifar import get_train_loader, get_val_loader
 from utils import accuracy, setup_default_logging, AverageMeter, WarmupCosineLrScheduler
 
-from lumo import Logger, Meter, AvgMeter
+import tensorboard_logger
+from lumo import Logger, AvgMeter, Meter
 
+from lumo import TrainerExperiment
+
+exp = TrainerExperiment('comatch.origin')
 log = Logger()
-log.add_log_dir('./log')
+log.add_log_dir(exp.test_root)
 
 
 def set_model(args):
@@ -66,9 +68,6 @@ def ema_model_update(model, ema_model, ema_m):
         buffer_eval.copy_(buffer_train)
 
 
-queue_ptr = 0
-
-
 def train_one_epoch(epoch,
                     model,
                     ema_model,
@@ -83,10 +82,9 @@ def train_one_epoch(epoch,
                     logger,
                     queue_feats,
                     queue_probs,
-                    # queue_ptr,
-                    dlval=None
+                    queue_ptr,
+                    dlval
                     ):
-    global queue_ptr
     model.train()
     loss_x_meter = AverageMeter()
     loss_u_meter = AverageMeter()
@@ -101,10 +99,7 @@ def train_one_epoch(epoch,
 
     epoch_start = time.time()  # start time
     dl_x, dl_u = iter(dltrain_x), iter(dltrain_u)
-
-    avg = AvgMeter()
-    for it in range(1, n_iters + 1):
-        meter = Meter()
+    for it in range(n_iters):
         (ims_x_weak, _, _), lbs_x = next(dl_x)
         (ims_u_weak, ims_u_strong0, ims_u_strong1), lbs_u_real = next(dl_u)
 
@@ -143,20 +138,12 @@ def train_one_epoch(epoch,
             probs_orig = probs.clone()
 
             if epoch > 0 or it > args.queue_batch:  # memory-smoothing
-                # A = torch.exp(torch.mm(feats_u_w, queue_feats.t()) / args.temperature)
-                # A = A / A.sum(1, keepdim=True)  # 概率分布
-                A = torch.softmax(torch.mm(feats_u_w, queue_feats.t()) / args.temperature, dim=-1)
-
-                sim_prob = torch.mm(A, queue_probs)
-                # sim_probs
-                probs = args.alpha * probs + (1 - args.alpha) * sim_prob
-                meter.mean.As = (sim_prob.argmax(dim=-1) == lbs_u_real).float().mean()
+                A = torch.exp(torch.mm(feats_u_w, queue_feats.t()) / args.temperature)
+                A = A / A.sum(1, keepdim=True)
+                probs = args.alpha * probs + (1 - args.alpha) * torch.mm(A, queue_probs)
 
             scores, lbs_u_guess = torch.max(probs, dim=1)
-            mask = scores.ge(args.thr)
-            if mask.any():
-                meter.mean.Amop = (probs_orig.argmax(dim=-1) == lbs_u_real)[mask].float().mean()
-                meter.mean.Ams = (sim_prob.argmax(dim=-1) == lbs_u_real)[mask].float().mean()
+            mask = scores.ge(args.thr).float()
 
             feats_w = torch.cat([feats_u_w, feats_x], dim=0)
             onehot = torch.zeros(bt, args.n_classes).cuda().scatter(1, lbs_x.view(-1, 1), 1)
@@ -170,7 +157,7 @@ def train_one_epoch(epoch,
 
         # embedding similarity
         sim = torch.exp(torch.mm(feats_u_s0, feats_u_s1.t()) / args.temperature)
-        sim_probs = sim / sim.sum(1, keepdim=True)  # softmax
+        sim_probs = sim / sim.sum(1, keepdim=True)
 
         # pseudo-label graph with self-loop
         Q = torch.mm(probs, probs.t())
@@ -180,29 +167,15 @@ def train_one_epoch(epoch,
         Q = Q * pos_mask
         Q = Q / Q.sum(1, keepdim=True)
 
-        loss_contrast = contrastive_loss2(feats_u_s0, feats_u_s1, temperature=args.temperature, norm=True, qk_graph=Q)
-
         # contrastive loss
-        # loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
-        # loss_contrast = loss_contrast.mean()
+        loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
+        loss_contrast = loss_contrast.mean()
 
         # unsupervised classification loss
-        loss_u = - torch.sum((F.log_softmax(logits_u_s0, dim=1) * probs), dim=1) * mask.float()
+        loss_u = - torch.sum((F.log_softmax(logits_u_s0, dim=1) * probs), dim=1) * mask
         loss_u = loss_u.mean()
 
         loss = loss_x + args.lam_u * loss_u + args.lam_c * loss_contrast
-
-        meter.mean.Lall = loss
-        meter.mean.Lx = loss_x
-        meter.mean.Lu = loss_u
-        meter.mean.Lcs = loss_contrast
-        with torch.no_grad():
-            meter.mean.Pm = pos_mask.float().mean()
-            meter.mean.Ax = (logits_x.argmax(dim=-1) == lbs_x).float().mean()
-            meter.mean.um = mask.float().mean()
-            meter.mean.Au = (logits_u_w.argmax(dim=-1) == lbs_u_real).float().mean()
-            if mask.any():
-                meter.mean.Aum = (logits_u_w.argmax(dim=-1) == lbs_u_real)[mask].float().mean()
 
         optim.zero_grad()
         loss.backward()
@@ -213,28 +186,44 @@ def train_one_epoch(epoch,
             with torch.no_grad():
                 ema_model_update(model, ema_model, args.ema_m)
 
-        if mask.any():
-            corr_u_lb = (lbs_u_guess == lbs_u_real).float()[mask]
-            meter.mean.Corr = corr_u_lb.mean()
-        # meter.mean.CM = mask.float().mean()
-        avg.update(meter)
-        log.inline(f'{it}/{n_iters}', avg)
-        if it % 150 == 0:
-            # evaluate(model, ema_model, dlval)
-            # model.train()
-            # avg.clear()
-            log.newline()
-    avg.clear()
-    log.newline()
-    return loss_x_meter.avg, loss_u_meter.avg, loss_contrast_meter.avg, mask_meter.avg, pos_meter.avg, n_correct_u_lbs_meter, queue_feats, queue_probs, queue_ptr, prob_list
+        loss_x_meter.update(loss_x.item())
+        loss_u_meter.update(loss_u.item())
+        loss_contrast_meter.update(loss_contrast.item())
+        mask_meter.update(mask.mean().item())
+        pos_meter.update(pos_mask.sum(1).float().mean().item())
+
+        corr_u_lb = (lbs_u_guess == lbs_u_real).float() * mask
+        n_correct_u_lbs_meter.update(corr_u_lb.sum().item())
+        n_strong_aug_meter.update(mask.sum().item())
+
+        if (it + 1) % 64 == 0:
+            t = time.time() - epoch_start
+
+            lr_log = [pg['lr'] for pg in optim.param_groups]
+            lr_log = sum(lr_log) / len(lr_log)
+
+            logger.info("{}-x{}-s{}, {} | epoch:{}, iter: {}. loss_u: {:.3f}. loss_x: {:.3f}. loss_c: {:.3f}. "
+                        "n_correct_u: {:.2f}/{:.2f}. Mask:{:.3f}. num_pos: {:.1f}. LR: {:.3f}. Time: {:.2f}".format(
+                args.dataset, args.n_labeled, args.seed, args.exp_dir, epoch, it + 1, loss_u_meter.avg,
+                loss_x_meter.avg, loss_contrast_meter.avg, n_correct_u_lbs_meter.avg, n_strong_aug_meter.avg,
+                mask_meter.avg, pos_meter.avg, lr_log, t))
+
+            epoch_start = time.time()
+
+        if (it + 1) % 150 == 0:
+            evaluate(model, ema_model, dlval)
+            model.train()
+
+    return loss_x_meter.avg, loss_u_meter.avg, loss_contrast_meter.avg, mask_meter.avg, pos_meter.avg, n_correct_u_lbs_meter.avg / n_strong_aug_meter.avg, queue_feats, queue_probs, queue_ptr, prob_list
 
 
 def evaluate(model, ema_model, dataloader):
     model.eval()
-    avg = AvgMeter()
+
     top1_meter = AverageMeter()
     ema_top1_meter = AverageMeter()
 
+    avg = AvgMeter()
     with torch.no_grad():
         for ims, lbs in dataloader:
             meter = Meter()
@@ -256,7 +245,8 @@ def evaluate(model, ema_model, dataloader):
                 meter.sum.Ae1 = top1
                 meter.sum.Ae5 = top5
             avg.update(meter)
-    log.info('TEST', avg)
+        log.info(avg)
+
     return top1_meter.avg, ema_top1_meter.avg
 
 
@@ -293,7 +283,7 @@ def main():
                         help='weight decay')
     parser.add_argument('--momentum', type=float, default=0.9,
                         help='momentum for optimizer')
-    parser.add_argument('--seed', type=int, default=123,
+    parser.add_argument('--seed', type=int, default=1,
                         help='seed for random behaviors, no seed if negtive')
 
     parser.add_argument('--temperature', default=0.2, type=float, help='softmax temperature')
@@ -309,17 +299,13 @@ def main():
                         help='number of batches stored in memory bank')
     parser.add_argument('--exp-dir', default='CoMatch', type=str, help='experiment id')
     parser.add_argument('--checkpoint', default='', type=str, help='use pretrained model')
-    parser.add_argument('--device', default=0, type=int, help='use pretrained model')
 
     args = parser.parse_args()
-
-    from torch.cuda import set_device
-    set_device(args.device)
 
     logger, output_dir = setup_default_logging(args)
     logger.info(dict(args._get_kwargs()))
 
-    # tb_logger = tensorboard_logger.Logger(logdir=output_dir, flush_secs=2)
+    tb_logger = tensorboard_logger.Logger(logdir=output_dir, flush_secs=2)
 
     if args.seed > 0:
         torch.manual_seed(args.seed)
@@ -381,10 +367,20 @@ def main():
     logger.info('-----------start training--------------')
     for epoch in range(args.n_epoches):
 
-        train_one_epoch(epoch, **train_args, queue_feats=queue_feats, queue_probs=queue_probs,
-                        dlval=dlval)
+        loss_x, loss_u, loss_c, mask_mean, num_pos, guess_label_acc, queue_feats, queue_probs, queue_ptr, prob_list = \
+            train_one_epoch(epoch, **train_args, queue_feats=queue_feats, queue_probs=queue_probs, queue_ptr=queue_ptr,
+                            dlval=dlval)
 
         top1, ema_top1 = evaluate(model, ema_model, dlval)
+
+        tb_logger.log_value('loss_x', loss_x, epoch)
+        tb_logger.log_value('loss_u', loss_u, epoch)
+        tb_logger.log_value('loss_c', loss_c, epoch)
+        tb_logger.log_value('guess_label_acc', guess_label_acc, epoch)
+        tb_logger.log_value('test_acc', top1, epoch)
+        tb_logger.log_value('test_ema_acc', ema_top1, epoch)
+        tb_logger.log_value('mask', mask_mean, epoch)
+        tb_logger.log_value('num_pos', num_pos, epoch)
 
         if best_acc < top1:
             best_acc = top1
