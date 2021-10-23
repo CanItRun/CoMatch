@@ -43,7 +43,7 @@ def contrastive_loss2(query: torch.Tensor, key: torch.Tensor,
                       key_neg=True,
                       qk_graph=None,
                       qm_graph=None,
-                      eye_one_in_qk=True,
+                      eye_one_in_qk=False,
                       ):
     """
     Examples:
