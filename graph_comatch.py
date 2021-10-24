@@ -376,10 +376,10 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             memory = torch.cat(self.queue_list)
             # memory = torch.cat([un_query, un_key, queue_feats])
             # pos_memory = memory[torch.randperm(len(memory))[:128]]
-            pos_memory = torch.cat([choice_(un_query),
-                                    choice_(un_key),
-                                    choice_(memory)])
-            pos_memory = choice_(pos_memory, 256)
+            # pos_memory = torch.cat([choice_(un_query),
+            #                         choice_(un_key),
+            #                         choice_(memory)])
+            pos_memory = choice_(memory, 256)
             # neg_memory = memory[torch.randperm(len(memory))[:128]]
             # memory = torch.cat([un_query, un_key, memory])
 
