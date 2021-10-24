@@ -326,7 +326,7 @@ def train_one_epoch(epoch,
                                      memory=None,
                                      norm=True,
                                      temperature=0.2,
-                                     qk_graph=Q > 0, eye_one_in_qk=True)
+                                     qk_graph=Q, eye_one_in_qk=True)
             return loss
 
         Lgcs1 = graph_cs2()
