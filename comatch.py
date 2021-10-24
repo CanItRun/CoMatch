@@ -478,6 +478,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         self.optim.zero_grad()
         self.accelerator.backward(loss)
         self.optim.step()
+        self.lr_sche.apply(self.optim, self.global_step)
 
         if params.ema:
             self.ema_model.step()
@@ -533,7 +534,7 @@ def main():
     params.from_args()
 
     trainer = CoMatch(params)
-    trainer.rnd.mark('1')
+    trainer.rnd.mark('12')
     dltrain_x, dltrain_u = get_train_loader(
         'CIFAR10', params.batch_size, params.unloader_c,
         150, L=params.n_percls, root=cache_dir(), method='comatch')
