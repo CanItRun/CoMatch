@@ -24,15 +24,64 @@ from wrn2 import WideResnet
 torch.set_printoptions(precision=5, threshold=None, edgeitems=None, linewidth=None, profile=None, sci_mode=False)
 
 
-class GraphParams(Params):
+class ParamsType(Params):
+
+    def __init__(self):
+        super().__init__()
+        self.epoch = 1700
+        self.batch_size = 128
+        self.num_workers = 8
+        self.optim = self.OPTIM.create_optim('SGD', momentum=0.9, lr=0.03,
+                                             weight_decay=5e-4,
+                                             nesterov=True)
+        self.weight_decay = 5e-4
+
+        self.sample = 4
+        self.dataset = self.choice('cifar10', 'cifar100')
+        self.n_classes = 10
+        self.n_percls = 4
+        self.wview = 2
+        self.sview = 2
+
+        self.pretrain = True
+        self.semiseed = 123
+        self.limit_cls = -1
+
+        # dataset params
+        self.include_sup_in_un = True
+        self.repeat_sup = True
+        self.imb_type = self.choice('exp', 'step', 'none')
+        self.imb_ratio = 0.02
+
+        self.p_thresh = 0.9
+        self.p_t = 1
+
+        self.w_cs = 1
+        self.unloader_c = 1
+        self.ema = True
+        self.ema_label = False  # 加了指标好看，但是降点
+
+    def iparams(self):
+        if self.dataset == 'cifar100':
+            self.n_classes = 100
+            self.weight_decay = 0.001
+
+        if self.limit_cls > 0:
+            self.n_classes = self.limit_cls
+
+
+class GraphParams(ParamsType):
 
     def __init__(self):
         super().__init__()
         self.graph_fill_eye = True
+        self.n_classes = 10
+        self.ema = True
         self.detach_fc = False
         self.temperature = 0.2
         self.alpha = 0.9
         self.p_thresh = 0.95
+        self.queue = 10
         self.cs_thresh = 0.8
 
 
@@ -286,6 +335,7 @@ def main():
     params.batch_size = 64
     params.limit_cls = -1
     params.n_percls = 40
+    params.n_classes = 10
     params.from_args()
 
     dltrain_x, dltrain_u = get_train_loader(
