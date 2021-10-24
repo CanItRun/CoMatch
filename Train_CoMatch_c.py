@@ -270,10 +270,8 @@ def train_one_epoch(epoch,
                 temp = torch.pow(x, 1 / T)
                 return temp / temp.sum(dim=1, keepdims=True)
 
-        Q = sharpen_(Q)
-
         # contrastive loss
-        loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
+        loss_contrast = - (torch.log(sim_probs + 1e-7) * sharpen_(Q, 1)).sum(1)
         loss_contrast = loss_contrast.mean()
 
         # unsupervised classification loss
@@ -318,7 +316,7 @@ def train_one_epoch(epoch,
             loss = contrastive_loss2(anchor, positive,
                                      memory=None,
                                      norm=True,
-                                     temperature=0.2,
+                                     temperature=0.02,
                                      qk_graph=gqk)
             return loss
 
@@ -341,13 +339,12 @@ def train_one_epoch(epoch,
             loss = contrastive_loss2(anchor, positive,
                                      memory=None,
                                      norm=True,
-                                     temperature=0.2,
-                                     qk_graph=Q, eye_one_in_qk=False)
+                                     temperature=0.02,
+                                     qk_graph=sharpen_(Q), eye_one_in_qk=False)
             return loss
 
         Lgcs1 = graph_cs2()
-
-        # Lgcs2 = graph_cs3()
+        Lgcs2 = graph_cs3()
 
         def strategy0():
             exp.add_tag('loss0')
@@ -378,7 +375,7 @@ def train_one_epoch(epoch,
 
         def strategy4():
             exp.add_tag('loss4')
-            loss = loss_x + args.lam_u * loss_u + Lgcs1 + loss_contrast
+            loss = loss_x + args.lam_u * loss_u + Lgcs1 + Lgcs2
             return loss
 
         if args.s == 0:
