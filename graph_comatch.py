@@ -243,7 +243,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
     def test_step(self, idx, batch, params: ParamsType, *args, **kwargs):
         meter = Meter()
         xs, ys = batch
-        logits, _ = self.ema_model.forward(xs)
+        logits = self.ema_model.forward(xs).last_hidden_state
         meter.mean.Acc = (logits.argmax(dim=-1) == ys).float().mean()
         meter.sum.Ac = (logits.argmax(dim=-1) == ys).sum()
         meter.sum.All = len(ys)
