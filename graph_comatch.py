@@ -451,6 +451,11 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
                 loss = loss_x + loss_u + Lgcs1 * 0.1 + Lgcs2 * 0.1 + loss_contrast
             return loss
 
+        def strategy4():
+            self.exp.add_tag('loss4')
+            loss = loss_x + loss_u + Lgcs1 + Lgcs2
+            return loss
+
         if params.s == 0:
             loss = strategy0()
         elif params.s == 1:
@@ -459,6 +464,8 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             loss = strategy2()
         elif params.s == 3:
             loss = strategy3()
+        elif params.s == 4:
+            loss = strategy4()
         else:
             loss = 0
 
