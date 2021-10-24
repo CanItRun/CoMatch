@@ -15,6 +15,7 @@ from lumo.kit.trainer import TrainerResult
 from lumo.nest.trainer.losses import MSELoss, L2Loss
 from lumo import Params, Trainer, DataBundler, Meter, DataModule
 from lumo.proc.path import cache_dir
+from torchvision.transforms import FiveCrop
 
 from datasets.cifar import get_train_loader, get_val_loader
 from wrn2 import WideResnet
@@ -81,7 +82,11 @@ class GraphParams(ParamsType):
         self.alpha = 0.9
         self.p_thresh = 0.95
         self.queue = 10
+        self.s = 0
         self.cs_thresh = 0.8
+        self.thr = 0.95
+
+        self.contrast_th = 0.8
 
 
 ParamsType = GraphParams
@@ -259,12 +264,12 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         # unsxs_0 = unbatch['sxs']
         # unsxs_1 = unbatch['ssxs0']
 
-        (xs, _, _), ys = lbatch
+        (xs, xs_s0, xs_s1), ys = lbatch
         (unxs, unsxs_0, unsxs_1), unys = unbatch
 
         # qxs = torch.cat([xs, unxs])
         # kxs = torch.cat([sxs_0, unsxs_0])
-        axs = torch.cat([xs, unxs, unsxs_0, unsxs_1])
+        axs = torch.cat([xs, xs_s0, xs_s1, unxs, unsxs_0, unsxs_1])
         # axs = interleave(axs, 2 * params.unloader_c + 1)
         # outputs = self.model.forward(axs, return_hidden_states=True)
 
@@ -273,87 +278,199 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
 
         outputs = self.model.forward(axs, return_hidden_states=True)
         logits = outputs.last_hidden_state
-        logits_x = logits[:bt]
-        logits_u_w, logits_u_s0, logits_u_s1 = torch.split(logits[bt:], btu)
 
         features = self.head(outputs.hidden_states[-2])
         features = self.norm(features)
-        feats_x = features[:bt]
-        feats_u_w, feats_u_s0, feats_u_s1 = torch.split(features[bt:], btu)
 
-        meter.mean.Lce = F.cross_entropy(logits_x, ys)
+        logits_x, _, _ = logits[:bt * 3].chunk(3)
+        logits_u_w, logits_u_s0, logits_u_s1 = torch.split(logits[bt * 3:], btu)
+
+        sup_w_query, sup_query, sup_key = features[:bt * 3].chunk(3)
+        un_w_query, un_query, un_key = torch.split(features[bt * 3:], btu)
+
+        loss_x = F.cross_entropy(logits_x, ys)
 
         with torch.no_grad():
             logits_u_w = logits_u_w.detach()
-            feats_x = feats_x.detach()
-            feats_u_w = feats_u_w.detach()
+            sup_w_query = sup_w_query.detach()
+            un_w_query = un_w_query.detach()
 
             probs = torch.softmax(logits_u_w, dim=1)
+            # DA
+            # prob_list.append(probs.mean(0))
+            # if len(prob_list) > 32:
+            #     prob_list.pop(0)
+            # prob_avg = torch.stack(prob_list, dim=0).mean(0)
+            # probs = probs / prob_avg
+            # probs = probs / probs.sum(dim=1, keepdim=True)
+
             probs_orig = probs.clone()
 
-            if len(self.queue_list) > 0:
-                A = torch.softmax(torch.mm(feats_u_w, torch.cat(self.queue_list).t()) / params.temperature, dim=-1)
-
-                sim_prob = torch.mm(A, torch.cat(self.queue_prob))
-                # sim_probs
-                probs = params.alpha * probs + (1 - params.alpha) * sim_prob
-                meter.mean.As = (sim_prob.argmax(dim=-1) == unys).float().mean()
+            if len(self.queue_list) > 0:  # memory-smoothing
+                queue_feats = torch.cat(self.queue_list)
+                queue_probs = torch.cat(self.queue_prob)
+                A = torch.exp(torch.mm(un_w_query, queue_feats.t()) / params.temperature)
+                A = A / A.sum(1, keepdim=True)
+                probs = params.alpha * probs + (1 - params.alpha) * torch.mm(A, queue_probs)
 
             scores, lbs_u_guess = torch.max(probs, dim=1)
-            mask = scores.ge(params.p_thresh)
-            if mask.any():
-                meter.mean.Amop = (probs_orig.argmax(dim=-1) == unys)[mask].float().mean()
-                meter.mean.Ams = (sim_prob.argmax(dim=-1) == unys)[mask].float().mean()
+            mask = scores.ge(params.thr).float()
 
-            feats_w = torch.cat([feats_u_w, feats_x], dim=0)
-            # onehot = torch.zeros(bt, params.n_classes).cuda().scatter(1, lbs_x.view(-1, 1), 1)
-            probs_w = torch.cat([probs_orig, onehot(ys, params.n_classes)], dim=0)
+            feats_w = torch.cat([un_w_query, sup_w_query], dim=0)
+            onehot = torch.zeros(bt, params.n_classes).cuda().scatter(1, ys.view(-1, 1), 1)
+            probs_w = torch.cat([probs_orig, onehot], dim=0)
 
-            self.queue_list.append(feats_w.detach())
-            self.queue_prob.append(probs_w.detach())
+            # update memory bank
+            n = bt + btu
+            self.queue_list.append(feats_w)
+            self.queue_prob.append(probs_w)
             if len(self.queue_list) > params.queue:
                 self.queue_list.pop(0)
                 self.queue_prob.pop(0)
-            # update memory bank
+            # queue_feats[queue_ptr:queue_ptr + n, :] = feats_w
+            # queue_probs[queue_ptr:queue_ptr + n, :] = probs_w
+            # queue_ptr = (queue_ptr + n) % args.queue_size
 
         # embedding similarity
-        # sim = torch.exp(torch.mm(feats_u_s0, feats_u_s1.t()) / args.temperature)
-        # sim_probs = sim / sim.sum(1, keepdim=True)
+        sim = torch.exp(torch.mm(un_query, un_key.t()) / params.temperature)
+        sim_probs = sim / sim.sum(1, keepdim=True)
 
         # pseudo-label graph with self-loop
         Q = torch.mm(probs, probs.t())
         Q.fill_diagonal_(1)
-        pos_mask = (Q >= params.cs_thresh).float()
+        pos_mask = (Q >= params.contrast_th).float()
 
         Q = Q * pos_mask
         Q = Q / Q.sum(1, keepdim=True)
 
-        loss_contrast = contrastive_loss2(feats_u_s0, feats_u_s1, temperature=params.temperature,
-                                          norm=False,
-                                          qk_graph=Q, eye_one_in_qk=False)
+        # contrastive loss
+        loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
+        loss_contrast = loss_contrast.mean()
 
         # unsupervised classification loss
-        loss_u = - torch.sum((F.log_softmax(logits_u_s0, dim=1) * probs), dim=1) * mask.float()
+        loss_u = - torch.sum((F.log_softmax(logits_u_s0, dim=1) * probs), dim=1) * mask
         loss_u = loss_u.mean()
 
-        meter.Lall = meter.Lce + loss_u + loss_contrast
-        meter.mean.Lu = loss_u
-        meter.mean.Lcs = loss_contrast
+        def comatch_loss():
+            self.exp.add_tag('Lcs')
+            return contrastive_loss2(un_query, un_key, temperature=params.temperature, qk_graph=Q)
+
+        # contrastive loss
+        loss_contrast = comatch_loss()
+
+        # loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
+        # loss_contrast = loss_contrast.mean()
+
+        # unsupervised classification loss
+        loss_u = - torch.sum((F.log_softmax(logits_u_s0, dim=1) * probs), dim=1) * mask
+        loss_u = loss_u.mean()
+
+        def choice_(tensor, size=128):
+            return tensor[torch.randperm(len(tensor))[:size]]
+
+        # graph cs2
+        def graph_cs2():
+            # ./log/l.0.2110191754.log
+            self.exp.add_tag('sup_gcs')
+            memory = queue_feats
+            # memory = torch.cat([un_query, un_key, queue_feats])
+            # pos_memory = memory[torch.randperm(len(memory))[:128]]
+            pos_memory = torch.cat([choice_(un_query),
+                                    choice_(un_key),
+                                    choice_(memory)])
+            pos_memory = choice_(pos_memory, 256)
+            # neg_memory = memory[torch.randperm(len(memory))[:128]]
+            # memory = torch.cat([un_query, un_key, memory])
+
+            anchor = batch_cosine_similarity(sup_query, pos_memory)
+            positive = batch_cosine_similarity(sup_key, pos_memory)
+            # negative = batch_cosine_similarity(sup_key, neg_memory)
+            gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
+            loss = contrastive_loss2(anchor, positive,
+                                     memory=None,
+                                     norm=True,
+                                     temperature=0.2,
+                                     qk_graph=gqk)
+            return loss
+
+        def graph_cs3():
+            # ./log/l.0.2110191754.log
+            self.exp.add_tag('un_gcs')
+            # memory = queue_feats
+            memory = queue_feats
+            pos_memory = torch.cat([choice_(un_query),
+                                    choice_(un_key),
+                                    choice_(memory)])
+            pos_memory = choice_(pos_memory, 256)
+            # neg_memory = memory[torch.randperm(len(memory))[:512]]
+
+            anchor = batch_cosine_similarity(un_query, pos_memory)
+            positive = batch_cosine_similarity(un_key, pos_memory)
+            # negative = batch_cosine_similarity(un_key, neg_memory)
+
+            # gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
+            loss = contrastive_loss2(anchor, positive,
+                                     memory=None,
+                                     norm=True,
+                                     temperature=0.2,
+                                     qk_graph=Q, eye_one_in_qk=True)
+            return loss
+
+        Lgcs1 = graph_cs2()
+        Lgcs2 = graph_cs3()
+
+        def strategy0():
+            self.exp.add_tag('loss0')
+            loss = loss_x + loss_u + loss_contrast
+            return loss
+
+        def strategy1():
+            self.exp.add_tag('loss1')
+            loss = loss_x + loss_u + Lgcs1 + Lgcs2 + loss_contrast
+            return loss
+
+        def strategy2():
+            self.exp.add_tag('loss2')
+            if self.eidx < 3:
+                loss = loss_x + loss_u + Lgcs1 + Lgcs2 + loss_contrast
+            else:
+                loss = loss_x + loss_u + loss_contrast
+            return loss
+
+        def strategy3():
+            self.exp.add_tag('loss3')
+
+            if self.eidx < 3:
+                loss = loss_x + loss_u + Lgcs1 + Lgcs2 + loss_contrast
+            else:
+                loss = loss_x + loss_u + Lgcs1 * 0.1 + Lgcs2 * 0.1 + loss_contrast
+            return loss
+
+        if params.s == 0:
+            loss = strategy0()
+        elif params.s == 1:
+            loss = strategy1()
+        elif params.s == 2:
+            loss = strategy2()
+        elif params.s == 3:
+            loss = strategy3()
+        else:
+            loss = 0
+
         with torch.no_grad():
+            meter.mean.Lall = loss
+            meter.mean.Lx = loss_x
+            meter.mean.Lu = loss_u
+            meter.mean.Lcs = loss_contrast
+            meter.mean.Lgcs1 = Lgcs1
+            meter.mean.Lgcs2 = Lgcs2
+            meter.mean.Pm = pos_mask.float().mean()
             meter.mean.Pm = pos_mask.float().mean()
             meter.mean.Ax = (logits_x.argmax(dim=-1) == ys).float().mean()
             meter.mean.um = mask.float().mean()
             meter.mean.Au = (logits_u_w.argmax(dim=-1) == unys).float().mean()
-            if mask.any():
-                meter.mean.Aum = (logits_u_w.argmax(dim=-1) == unys)[mask].float().mean()
-
-        # # if params.train_sup:
-        # self.queue_list.append(torch.cat([sup_query, un_query]).detach())
-        # # self.g_queue_list.append(un_gquery.detach())
-        # self.queue_prob.append(torch.cat([onehot(ys, params.n_classes), ori_un_prob]).detach())
-        # if len(self.queue_list) > params.queue:
-        #     self.queue_list.pop(0)
-        #     self.queue_prob.pop(0)
+            if mask.bool().any():
+                meter.mean.Aum = (logits_u_w.argmax(dim=-1) == unys)[mask.bool()].float().mean()
 
         loss = meter.Lall
         self.optim.zero_grad()
