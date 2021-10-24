@@ -5,7 +5,8 @@ from collections import Counter, defaultdict
 
 import torch
 from lumo.calculate.tensor import onehot
-from lumo.contrib import EMA
+from ema import EMA
+from WideResNet import WideResnet as WideResnet2
 from lumo.contrib.nn.functional import batch_cosine_similarity
 # from trainer import *
 # from data import *
@@ -184,7 +185,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
     def imodels(self, params: ParamsType):
         super().imodels(params)
         # self.model = build_wideresnet(num_classes=params.n_classes)
-        self.model = WideResnet(n_classes=params.n_classes)
+        self.model = WideResnet2(n_classes=params.n_classes)
         feature_dim = self.model.feature_dim
         self.head = nn.Sequential(
             nn.Linear(feature_dim, feature_dim),
@@ -242,7 +243,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
     def test_step(self, idx, batch, params: ParamsType, *args, **kwargs):
         meter = Meter()
         xs, ys = batch
-        logits = self.ema_model.forward(xs).last_hidden_state
+        logits, _ = self.ema_model.forward(xs)
         meter.mean.Acc = (logits.argmax(dim=-1) == ys).float().mean()
         meter.sum.Ac = (logits.argmax(dim=-1) == ys).sum()
         meter.sum.All = len(ys)
@@ -276,11 +277,11 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         bt = xs.size(0)
         btu = unxs.size(0)
 
-        outputs = self.model.forward(axs, return_hidden_states=True)
-        logits = outputs.last_hidden_state
+        logits, features = self.model.forward(axs)
+        # logits = outputs
 
-        features = self.head(outputs.hidden_states[-2])
-        features = self.norm(features)
+        # features = self.head(outputs.hidden_states[-2])
+        # features = self.norm(features)
 
         logits_x, _, _ = logits[:bt * 3].chunk(3)
         logits_u_w, logits_u_s0, logits_u_s1 = torch.split(logits[bt * 3:], btu)
@@ -415,6 +416,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
                                      temperature=0.2,
                                      qk_graph=Q, eye_one_in_qk=True)
             return loss
+
         # if len(self.queue_list) > 0:
         #     Lgcs1 = graph_cs2()
         #     Lgcs2 = graph_cs3()
