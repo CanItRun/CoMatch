@@ -255,7 +255,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         super().train_step(idx, batch, params, *args, **kwargs)
         meter = Meter()
         meter.mean.Lall = 0
-
+        Lgcs1, Lgcs2 = 0, 0
         lbatch, unbatch = batch
         # idx = lbatch['idx0']
         # xs, ys = lbatch['xs0'], lbatch['ys0']
@@ -420,6 +420,9 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         if len(self.queue_list) > 0:
             Lgcs1 = graph_cs2()
             Lgcs2 = graph_cs3()
+            with torch.no_grad():
+                meter.mean.Lgcs1 = Lgcs1
+                meter.mean.Lgcs2 = Lgcs2
 
         def strategy0():
             self.exp.add_tag('loss0')
@@ -464,8 +467,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             meter.mean.Lx = loss_x
             meter.mean.Lu = loss_u
             meter.mean.Lcs = loss_contrast
-            # meter.mean.Lgcs1 = Lgcs1
-            # meter.mean.Lgcs2 = Lgcs2
+
             meter.mean.Pm = pos_mask.float().mean()
             meter.mean.Pm = pos_mask.float().mean()
             meter.mean.Ax = (logits_x.argmax(dim=-1) == ys).float().mean()
