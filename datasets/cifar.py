@@ -67,6 +67,8 @@ def load_data_train(L=250, dataset='CIFAR10', dspth='./data'):
     for i in range(n_class):
         indices = np.where(labels == i)[0]
         np.random.shuffle(indices)
+        print(indices[:10])
+
         inds_x, inds_u = indices[:n_labels], indices[n_labels:]
         data_x += [
             data[i].reshape(3, 32, 32).transpose(1, 2, 0)
@@ -78,7 +80,6 @@ def load_data_train(L=250, dataset='CIFAR10', dspth='./data'):
             for i in inds_u
         ]
         label_u += [labels[i] for i in inds_u]
-    print(label_x[:10])
     return data_x, label_x, data_u, label_u
 
 
