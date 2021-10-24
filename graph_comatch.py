@@ -185,7 +185,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
     def imodels(self, params: ParamsType):
         super().imodels(params)
         # self.model = build_wideresnet(num_classes=params.n_classes)
-        self.model = WideResnet2(n_classes=params.n_classes)
+        self.model = WideResnet(n_classes=params.n_classes)
         feature_dim = 64 * self.model.k
         self.head = nn.Sequential(
             nn.Linear(feature_dim, feature_dim),
@@ -277,11 +277,11 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         bt = xs.size(0)
         btu = unxs.size(0)
 
-        logits, features = self.model.forward(axs)
-        # logits = outputs
+        outputs = self.model.forward(axs)
+        logits = outputs.last_hidden_state
 
-        # features = self.head(outputs.hidden_states[-2])
-        # features = self.norm(features)
+        features = self.head(outputs.hidden_states[-2])
+        features = self.norm(features)
 
         logits_x, _, _ = logits[:bt * 3].chunk(3)
         logits_u_w, logits_u_s0, logits_u_s1 = torch.split(logits[bt * 3:], btu)
