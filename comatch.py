@@ -532,6 +532,8 @@ def main():
     params.n_classes = 10
     params.from_args()
 
+    trainer = CoMatch(params)
+    trainer.rnd.mark('1')
     dltrain_x, dltrain_u = get_train_loader(
         'CIFAR10', params.batch_size, params.unloader_c,
         150, L=params.n_percls, root=cache_dir(), method='comatch')
@@ -541,7 +543,6 @@ def main():
 
     dm = DataModule(train=db, test=dlval)
 
-    trainer = CoMatch(params)
     trainer.train(dm)
 
 
