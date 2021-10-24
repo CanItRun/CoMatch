@@ -191,6 +191,7 @@ def train_one_epoch(epoch,
         (ims_x_weak, ims_x_s0, ims_x_s1), ys = next(dl_x)
         (ims_u_weak, ims_u_s0, ims_u_s1), unys = next(dl_u)
         Lgcs1 = 0
+        Lgcs2 = 0
         ys = ys.cuda()
         unys = unys.cuda()
 
