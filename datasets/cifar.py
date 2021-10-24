@@ -78,6 +78,7 @@ def load_data_train(L=250, dataset='CIFAR10', dspth='./data'):
             for i in inds_u
         ]
         label_u += [labels[i] for i in inds_u]
+    print(label_x[:10])
     return data_x, label_x, data_u, label_u
 
 
