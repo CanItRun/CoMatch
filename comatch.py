@@ -415,7 +415,7 @@ def main():
 
     dltrain_x, dltrain_u = get_train_loader(
         'CIFAR10', params.batch_size, params.unloader_c,
-        1024, L=params.n_percls, root=cache_dir(), method='comatch')
+        150, L=params.n_percls, root=cache_dir(), method='comatch')
     dlval = get_val_loader(dataset='CIFAR10', batch_size=128, num_workers=2, root=cache_dir())
 
     db = DataBundler().cycle(dltrain_x).add(dltrain_u).zip_mode()
