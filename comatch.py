@@ -13,10 +13,10 @@ from lumo.contrib.nn.functional import batch_cosine_similarity
 from lumo.contrib.nn.loss import contrastive_loss, sup_contrastive_loss, contrastive_loss2
 from lumo.kit.trainer import TrainerResult
 from lumo.nest.trainer.losses import MSELoss, L2Loss
-from lumo import Params, Trainer, DataBundler, Meter
+from lumo import Params, Trainer, DataBundler, Meter, DataModule
 from lumo.proc.path import cache_dir
 
-from datasets.cifar import get_train_loader
+from datasets.cifar import get_train_loader, get_val_loader
 from wrn2 import WideResnet
 
 # ParamsType = CCParams
@@ -129,17 +129,6 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         meter.mean.acc = (logits.argmax(dim=-1) == ys).float().mean()
         return meter
 
-    def on_train_epoch_end(self, trainer: Trainer, func, params: Params, result: TrainerResult, *args, **kwargs):
-        # self.save_model()
-        loader = self.train_dataloader
-        if isinstance(loader, DataBundler):
-            [i[0].dataset.shuffle() for i in loader.dataloaders.values()]
-        else:
-            loader.dataset.shuffle()
-
-    def to_logits(self, xs) -> torch.Tensor:
-        raise NotImplemented()
-
     def sharpen_(self, x: torch.Tensor, T=0.5):
         """
         让概率分布变的更 sharp，即倾向于 onehot
@@ -170,16 +159,6 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         if meter is not None:
             meter[name] = loss
         return loss
-
-    def test_step(self, idx, batch, params: ParamsType, *args, **kwargs):
-        super().test_step(idx, batch, params, *args, **kwargs)
-        meter = Meter()
-        xs, ys = batch['xs'], batch['ys']
-        logits = self.to_logits(xs)
-        meter.mean.Acc = (logits.argmax(dim=-1) == ys).float().mean()
-        meter.sum.Ac = (logits.argmax(dim=-1) == ys).sum()
-        meter.sum.All = len(ys)
-        return meter
 
     def on_train_step_begin(self, trainer: Trainer, func, params: Params, *args, **kwargs):
         super().on_train_step_begin(trainer, func, params, *args, **kwargs)
@@ -257,7 +236,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
 
     def test_step(self, idx, batch, params: ParamsType, *args, **kwargs):
         meter = Meter()
-        xs, ys = batch['xs'], batch['ys']
+        xs, ys = batch
         logits = self.ema_model.forward(xs).last_hidden_state
         meter.mean.Acc = (logits.argmax(dim=-1) == ys).float().mean()
         meter.sum.Ac = (logits.argmax(dim=-1) == ys).sum()
@@ -273,12 +252,15 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
 
         lbatch, unbatch = batch
         # idx = lbatch['idx0']
-        xs, ys = lbatch['xs0'], lbatch['ys0']
+        # xs, ys = lbatch['xs0'], lbatch['ys0']
         # sxs = lbatch['sxs']
-        unxs, unys = unbatch['xs0'], unbatch['ys0']
+        # unxs, unys = unbatch['xs0'], unbatch['ys0']
         # unidx = unbatch['idx0']
-        unsxs_0 = unbatch['sxs']
-        unsxs_1 = unbatch['ssxs0']
+        # unsxs_0 = unbatch['sxs']
+        # unsxs_1 = unbatch['ssxs0']
+
+        (xs, _, _), ys = lbatch
+        (unxs, unsxs_0, unsxs_1), unys = unbatch
 
         # qxs = torch.cat([xs, unxs])
         # kxs = torch.cat([sxs_0, unsxs_0])
@@ -434,11 +416,14 @@ def main():
     dltrain_x, dltrain_u = get_train_loader(
         'CIFAR10', params.batch_size, params.unloader_c,
         1024, L=params.n_percls, root=cache_dir(), method='comatch')
+    dlval = get_val_loader(dataset='CIFAR10', batch_size=128, num_workers=2, root=cache_dir())
 
     db = DataBundler().cycle(dltrain_x).add(dltrain_u).zip_mode()
 
+    dm = DataModule(train=db, test=dlval)
+
     trainer = CoMatch(params)
-    trainer.train(db)
+    trainer.train(dm)
 
 
 if __name__ == '__main__':
