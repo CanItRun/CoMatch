@@ -399,10 +399,10 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             self.exp.add_tag('un_gcs')
             # memory = queue_feats
             memory = torch.cat(self.queue_list)
-            pos_memory = torch.cat([choice_(un_query),
-                                    choice_(un_key),
-                                    choice_(memory)])
-            pos_memory = choice_(pos_memory, 256)
+            # pos_memory = torch.cat([cat,
+            #                         ,
+            #                         choice_(memory)])
+            pos_memory = choice_(memory, 256)
             # neg_memory = memory[torch.randperm(len(memory))[:512]]
 
             anchor = batch_cosine_similarity(un_query, pos_memory)
