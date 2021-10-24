@@ -2,7 +2,6 @@
 图对比学习 + 半监督场景
 """
 from collections import Counter, defaultdict
-from tkinter.tix import Meter
 
 import torch
 from lumo.calculate.tensor import onehot
@@ -14,7 +13,7 @@ from lumo.contrib.nn.functional import batch_cosine_similarity
 from lumo.contrib.nn.loss import contrastive_loss, sup_contrastive_loss, contrastive_loss2
 from lumo.kit.trainer import TrainerResult
 from lumo.nest.trainer.losses import MSELoss, L2Loss
-from lumo import Params, Trainer, DataBundler
+from lumo import Params, Trainer, DataBundler, Meter
 from lumo.proc.path import cache_dir
 
 from datasets.cifar import get_train_loader
