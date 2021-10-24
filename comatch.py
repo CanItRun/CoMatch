@@ -298,12 +298,12 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
 
             probs = torch.softmax(logits_u_w, dim=1)
             # DA
-            # prob_list.append(probs.mean(0))
-            # if len(prob_list) > 32:
-            #     prob_list.pop(0)
-            # prob_avg = torch.stack(prob_list, dim=0).mean(0)
-            # probs = probs / prob_avg
-            # probs = probs / probs.sum(dim=1, keepdim=True)
+            self.g_queue_list.append(probs.mean(0))
+            if len(self.g_queue_list) > 32:
+                self.g_queue_list.pop(0)
+            prob_avg = torch.stack(self.g_queue_list, dim=0).mean(0)
+            probs = probs / prob_avg
+            probs = probs / probs.sum(dim=1, keepdim=True)
 
             probs_orig = probs.clone()
 
