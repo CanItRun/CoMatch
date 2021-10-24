@@ -190,7 +190,7 @@ def train_one_epoch(epoch,
         meter = Meter()
         (ims_x_weak, ims_x_s0, ims_x_s1), ys = next(dl_x)
         (ims_u_weak, ims_u_s0, ims_u_s1), unys = next(dl_u)
-
+        Lgcs1 = 0
         ys = ys.cuda()
         unys = unys.cuda()
 
@@ -344,7 +344,7 @@ def train_one_epoch(epoch,
                                      qk_graph=Q, eye_one_in_qk=False)
             return loss
 
-        Lgcs1 = graph_cs2()
+        # Lgcs1 = graph_cs2()
         Lgcs2 = graph_cs3()
 
         def strategy0():
