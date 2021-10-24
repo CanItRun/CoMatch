@@ -344,8 +344,9 @@ def train_one_epoch(epoch,
                                      qk_graph=Q, eye_one_in_qk=False)
             return loss
 
-        # Lgcs1 = graph_cs2()
-        Lgcs2 = graph_cs3()
+        Lgcs1 = graph_cs2()
+
+        # Lgcs2 = graph_cs3()
 
         def strategy0():
             exp.add_tag('loss0')
@@ -376,7 +377,7 @@ def train_one_epoch(epoch,
 
         def strategy4():
             exp.add_tag('loss4')
-            loss = loss_x + args.lam_u * loss_u + Lgcs1 + Lgcs2
+            loss = loss_x + args.lam_u * loss_u + Lgcs1 + loss_contrast
             return loss
 
         if args.s == 0:
