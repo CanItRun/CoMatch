@@ -92,6 +92,100 @@ from torch import nn
 
 
 class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.TrainCallback):
+    def norm(self, feature):
+        return feature / torch.norm(feature, dim=-1, keepdim=True)
+
+    def sim_matrix(self, a, b) -> torch.Tensor:
+        """
+
+        Args:
+            a: [ba, dim]
+            b: [bb, dim]
+
+        Returns:
+            [ba, bb]
+
+        """
+        aa = (a / a.norm(dim=-1, keepdim=True))
+        bb = (b / b.norm(dim=-1, keepdim=True))
+        return torch.mm(aa, bb.T)
+
+    def on_train_begin(self, trainer: Trainer, func, params: Params, *args, **kwargs):
+        self.logger.raw(f' - [x] {self.exp.test_name} {self.exp.test_root}')
+
+    def icallbacks(self, params: ParamsType):
+        callbacks.LoggerCallback(step_frequence=1, breakline_in=-1).hook(self)
+        callbacks.AutoLoadModel().hook(self)
+        callbacks.ScalarRecorder().hook(self)
+        # callbacks.EMAUpdate().hook(self)
+
+        if isinstance(self, callbacks.TrainCallback):
+            self.hook(self)
+
+    def evaluate_step(self, idx, batch, params: ParamsType, *args, **kwargs) -> Meter:
+        meter = Meter()
+        xs = batch['xs0']
+        ys = batch['ys']
+        logits = self.to_logits(xs)
+        meter.mean.acc = (logits.argmax(dim=-1) == ys).float().mean()
+        return meter
+
+    def on_train_epoch_end(self, trainer: Trainer, func, params: Params, result: TrainerResult, *args, **kwargs):
+        # self.save_model()
+        loader = self.train_dataloader
+        if isinstance(loader, DataBundler):
+            [i[0].dataset.shuffle() for i in loader.dataloaders.values()]
+        else:
+            loader.dataset.shuffle()
+
+    def to_logits(self, xs) -> torch.Tensor:
+        raise NotImplemented()
+
+    def sharpen_(self, x: torch.Tensor, T=0.5):
+        """
+        让概率分布变的更 sharp，即倾向于 onehot
+        :param x: prediction, sum(x,dim=-1) = 1
+        :param T: temperature, default is 0.5
+        :return:
+        """
+        with torch.no_grad():
+            temp = torch.pow(x, 1 / T)
+            return temp / temp.sum(dim=1, keepdims=True)
+
+    def loss_ce_with_targets_masked_(self,
+                                     logits: torch.Tensor, targets: torch.Tensor, mask: torch.Tensor = None,
+                                     meter: Meter = None, name: str = "Ltce"):
+        """
+        用于 fixmatch 的 loss 计算方法，大 batch size 下天然可以对样本进行一个加权衰减
+        :param logits:
+        :param targets:
+        :param mask:
+        :param meter:
+        :param name:
+        :return:
+        """
+        _loss = torch.sum(F.log_softmax(logits, dim=1) * targets, dim=1)
+        if mask is not None:
+            _loss = _loss * mask
+        loss = -torch.mean(_loss)
+        if meter is not None:
+            meter[name] = loss
+        return loss
+
+    def test_step(self, idx, batch, params: ParamsType, *args, **kwargs):
+        super().test_step(idx, batch, params, *args, **kwargs)
+        meter = Meter()
+        xs, ys = batch['xs'], batch['ys']
+        logits = self.to_logits(xs)
+        meter.mean.Acc = (logits.argmax(dim=-1) == ys).float().mean()
+        meter.sum.Ac = (logits.argmax(dim=-1) == ys).sum()
+        meter.sum.All = len(ys)
+        return meter
+
+    def on_train_step_begin(self, trainer: Trainer, func, params: Params, *args, **kwargs):
+        super().on_train_step_begin(trainer, func, params, *args, **kwargs)
+        if params.idx % 150 == 0:
+            self.logger.newline()
 
     def on_prepare_dataloader_end(self, trainer: Trainer, func, params: Params, meter: Meter, *args, **kwargs):
         super().on_prepare_dataloader_end(trainer, func, params, meter, *args, **kwargs)
