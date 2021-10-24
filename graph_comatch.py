@@ -342,8 +342,8 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         pos_mask = (Q >= params.contrast_th).float()
 
         Q = Q * pos_mask
-        Q = Q / Q.sum(1, keepdim=True)
-
+        # Q = Q / Q.sum(1, keepdim=True)
+        Q = self.sharpen_(Q)
         # contrastive loss
         loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
         loss_contrast = loss_contrast.mean()
@@ -414,7 +414,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
                                      memory=None,
                                      norm=True,
                                      temperature=0.2,
-                                     qk_graph=Q, eye_one_in_qk=True)
+                                     qk_graph=Q, eye_one_in_qk=False)
             return loss
 
         if len(self.queue_list) > 0:
@@ -475,8 +475,8 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             meter.mean.Lu = loss_u
             meter.mean.Lcs = loss_contrast
 
-            meter.mean.Pm = pos_mask.float().mean()
-            meter.mean.Pm = pos_mask.float().mean()
+            # meter.mean.Pm = pos_mask.float().mean()
+            # meter.mean.Pm = pos_mask.float().mean()
             meter.mean.Ax = (logits_x.argmax(dim=-1) == ys).float().mean()
             meter.mean.um = mask.float().mean()
             meter.mean.Au = (logits_u_w.argmax(dim=-1) == unys).float().mean()
