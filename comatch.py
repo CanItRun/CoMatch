@@ -415,9 +415,9 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
                                      temperature=0.2,
                                      qk_graph=Q, eye_one_in_qk=True)
             return loss
-
-        # Lgcs1 = graph_cs2()
-        # Lgcs2 = graph_cs3()
+        if len(self.queue_list) > 0:
+            Lgcs1 = graph_cs2()
+            Lgcs2 = graph_cs3()
 
         def strategy0():
             self.exp.add_tag('loss0')
@@ -462,8 +462,8 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             meter.mean.Lx = loss_x
             meter.mean.Lu = loss_u
             meter.mean.Lcs = loss_contrast
-            meter.mean.Lgcs1 = Lgcs1
-            meter.mean.Lgcs2 = Lgcs2
+            # meter.mean.Lgcs1 = Lgcs1
+            # meter.mean.Lgcs2 = Lgcs2
             meter.mean.Pm = pos_mask.float().mean()
             meter.mean.Pm = pos_mask.float().mean()
             meter.mean.Ax = (logits_x.argmax(dim=-1) == ys).float().mean()
