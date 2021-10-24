@@ -416,8 +416,8 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
                                      qk_graph=Q, eye_one_in_qk=True)
             return loss
 
-        Lgcs1 = graph_cs2()
-        Lgcs2 = graph_cs3()
+        # Lgcs1 = graph_cs2()
+        # Lgcs2 = graph_cs3()
 
         def strategy0():
             self.exp.add_tag('loss0')
