@@ -534,7 +534,9 @@ def main():
     model, criteria_x, ema_model = set_model(args)
     logger.info("Total params: {:.2f}M".format(
         sum(p.numel() for p in model.parameters()) / 1e6))
-
+    from lumo import Trainer, Params
+    trainer = Trainer(Params())
+    trainer.rnd.mark('12')
     dltrain_x, dltrain_u = get_train_loader(
         args.dataset, args.batchsize, args.mu, n_iters_per_epoch, L=args.n_labeled, root=args.root, method='comatch')
     dlval = get_val_loader(dataset=args.dataset, batch_size=64, num_workers=2, root=args.root)
