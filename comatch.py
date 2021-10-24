@@ -357,7 +357,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             return contrastive_loss2(un_query, un_key, temperature=params.temperature, qk_graph=Q)
 
         # contrastive loss
-        loss_contrast = comatch_loss()
+        # loss_contrast = comatch_loss()
 
         # loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
         # loss_contrast = loss_contrast.mean()
