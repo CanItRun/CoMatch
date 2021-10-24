@@ -186,7 +186,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         super().imodels(params)
         # self.model = build_wideresnet(num_classes=params.n_classes)
         self.model = WideResnet2(n_classes=params.n_classes)
-        feature_dim = self.model.feature_dim
+        feature_dim = 64 * self.model.k
         self.head = nn.Sequential(
             nn.Linear(feature_dim, feature_dim),
             # nn.BatchNorm1d(feature_dim),
