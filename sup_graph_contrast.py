@@ -325,6 +325,26 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
             meter.mean.Lcs = loss
             return loss
 
+        def graph_cs2():
+            # ./log/l.0.2110191754.log
+            self.exp.add_tag('sup_gcs')
+            memory = torch.cat(self.g_queue_list)
+            pos_memory = choice_(memory, self.feature_dim)
+
+            anchor = batch_cosine_similarity(sup_gquery, pos_memory)
+            positive = batch_cosine_similarity(sup_gkey, pos_memory)
+            if params.graph_head:
+                anchor, positive = self.graph_head(torch.cat([anchor, positive])).chunk(2)
+
+            loss = contrastive_loss2(anchor, positive,
+                                     memory=None,
+                                     norm=True,
+                                     temperature=0.2,
+                                     qk_graph=(ys.unsqueeze(0) == ys.unsqueeze(1)),
+                                     eye_one_in_qk=False)
+            meter.mean.Lgcs2 = loss
+            return loss
+
         def graph_cs3():
             # ./log/l.0.2110191754.log
             self.exp.add_tag('un_gcs')
@@ -355,14 +375,14 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
         def strategy1():
             """graph contrast"""
             if len(self.queue_list) > 0:
-                Lgcs2 = graph_cs3()
+                Lgcs2 = graph_cs3() + graph_cs2()
                 return Lgcs2 + Lce
             return Lce
 
         def strategy2():
             """sup+graph contrast"""
             if len(self.queue_list) > 0:
-                Lgcs2 = graph_cs3()
+                Lgcs2 = graph_cs3() + graph_cs2()
                 return Lgcs2 + sup_contrast() + Lce
             return sup_contrast() + Lce
 
