@@ -63,6 +63,8 @@ class ParamsType(Params):
         self.ema_label = False  # 加了指标好看，但是降点
 
         self.sharp_r = 1
+        self.graph_s = 0
+        self.graph_head = True
 
     def iparams(self):
         if self.dataset == 'cifar100':
@@ -206,7 +208,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         self.prob_head = nn.Sequential(
             nn.Linear(feature_dim, feature_dim),
             nn.LeakyReLU(),
-            nn.Linear(feature_dim, params.n_classes),
+            nn.Linear(feature_dim, 128),
         )
 
         if params.ema:
@@ -231,6 +233,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         self.optim = params.optim.build(param_list)
 
         self.queue_list = []
+        self.da_prob_list = []
         self.g_queue_list = []
         self.queue_prob = []
 
@@ -277,6 +280,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         logits = outputs.last_hidden_state
 
         features = self.head(outputs.hidden_states[-2])
+        # features = self.head(outputs.hidden_states[-2])
         features = self.norm(features)
 
         logits_x, _, _ = logits[:bt * 3].chunk(3)
@@ -284,6 +288,46 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
 
         sup_w_query, sup_query, sup_key = features[:bt * 3].chunk(3)
         un_w_query, un_query, un_key = torch.split(features[bt * 3:], btu)
+
+        def graph_feature0():
+            """沿用对比学习 head"""
+            self.exp.add_tag('graph_feature1')
+            sup_w_query, sup_query, sup_key = features[:bt * 3].chunk(3)
+            un_w_query, un_query, un_key = torch.split(features[bt * 3:], btu)
+            return (sup_w_query, sup_query, sup_key), (un_w_query, un_query, un_key)
+
+        def graph_feature1():
+            """
+            用额外的映射头
+            Returns:
+
+            """
+            self.exp.add_tag('graph_feature2')
+            gfeatures = self.prob_head(outputs.hidden_states[-2])
+            sup_w_query, sup_query, sup_key = gfeatures[:bt * 3].chunk(3)
+            un_w_query, un_query, un_key = torch.split(gfeatures[bt * 3:], btu)
+            return (sup_w_query, sup_query, sup_key), (un_w_query, un_query, un_key)
+
+        def graph_feature2():
+            """
+            直接用原 hidden_states[-2]
+            Returns:
+
+            """
+            self.exp.add_tag('graph_feature3')
+            gfeatures = outputs.hidden_states[-2]
+            sup_w_query, sup_query, sup_key = gfeatures[:bt * 3].chunk(3)
+            un_w_query, un_query, un_key = torch.split(gfeatures[bt * 3:], btu)
+            return (sup_w_query, sup_query, sup_key), (un_w_query, un_query, un_key)
+
+        if params.graph_s == 0:
+            (sup_w_gquery, sup_gquery, sup_gkey), (un_w_gquery, un_gquery, un_gkey) = graph_feature0()
+        elif params.graph_s == 1:
+            (sup_w_gquery, sup_gquery, sup_gkey), (un_w_gquery, un_gquery, un_gkey) = graph_feature1()
+        elif params.graph_s == 2:
+            (sup_w_gquery, sup_gquery, sup_gkey), (un_w_gquery, un_gquery, un_gkey) = graph_feature2()
+        else:
+            raise NotImplementedError()
 
         loss_x = F.cross_entropy(logits_x, ys)
 
@@ -294,10 +338,10 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
 
             probs = torch.softmax(logits_u_w, dim=1)
             # DA
-            self.g_queue_list.append(probs.mean(0))
-            if len(self.g_queue_list) > 32:
-                self.g_queue_list.pop(0)
-            prob_avg = torch.stack(self.g_queue_list, dim=0).mean(0)
+            self.da_prob_list.append(probs.mean(0))
+            if len(self.da_prob_list) > 32:
+                self.da_prob_list.pop(0)
+            prob_avg = torch.stack(self.da_prob_list, dim=0).mean(0)
             probs = probs / prob_avg
             probs = probs / probs.sum(dim=1, keepdim=True)
 
@@ -314,19 +358,17 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             mask = scores.ge(params.thr).float()
 
             feats_w = torch.cat([un_w_query, sup_w_query], dim=0)
+            gfeats_w = torch.cat([un_w_gquery, sup_w_gquery], dim=0)
             onehot = torch.zeros(bt, params.n_classes).cuda().scatter(1, ys.view(-1, 1), 1)
             probs_w = torch.cat([probs_orig, onehot], dim=0)
 
-            # update memory bank
-            n = bt + btu
+            self.g_queue_list.append(gfeats_w)
             self.queue_list.append(feats_w)
             self.queue_prob.append(probs_w)
             if len(self.queue_list) > params.queue:
                 self.queue_list.pop(0)
                 self.queue_prob.pop(0)
-            # queue_feats[queue_ptr:queue_ptr + n, :] = feats_w
-            # queue_probs[queue_ptr:queue_ptr + n, :] = probs_w
-            # queue_ptr = (queue_ptr + n) % args.queue_size
+                self.g_queue_list.pop(0)
 
         # embedding similarity
         sim = torch.exp(torch.mm(un_query, un_key.t()) / params.temperature)
@@ -348,20 +390,6 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         loss_u = - torch.sum((F.log_softmax(logits_u_s0, dim=1) * probs), dim=1) * mask
         loss_u = loss_u.mean()
 
-        def comatch_loss():
-            self.exp.add_tag('Lcs')
-            return contrastive_loss2(un_query, un_key, temperature=params.temperature, qk_graph=Q)
-
-        # contrastive loss
-        # loss_contrast = comatch_loss()
-
-        # loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
-        # loss_contrast = loss_contrast.mean()
-
-        # unsupervised classification loss
-        loss_u = - torch.sum((F.log_softmax(logits_u_s0, dim=1) * probs), dim=1) * mask
-        loss_u = loss_u.mean()
-
         def choice_(tensor, size=128):
             return tensor[torch.randperm(len(tensor))[:size]]
 
@@ -369,7 +397,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         def graph_cs2():
             # ./log/l.0.2110191754.log
             self.exp.add_tag('sup_gcs')
-            memory = torch.cat(self.queue_list)
+            memory = torch.cat(self.g_queue_list)
             # memory = torch.cat([un_query, un_key, queue_feats])
             # pos_memory = memory[torch.randperm(len(memory))[:128]]
             # pos_memory = torch.cat([choice_(un_query),
@@ -379,9 +407,10 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             # neg_memory = memory[torch.randperm(len(memory))[:128]]
             # memory = torch.cat([un_query, un_key, memory])
 
-            anchor = batch_cosine_similarity(sup_query, pos_memory)
-            positive = batch_cosine_similarity(sup_key, pos_memory)
-            anchor, positive = self.graph_head(torch.cat([anchor, positive])).chunk(2)
+            anchor = batch_cosine_similarity(sup_gquery, pos_memory)
+            positive = batch_cosine_similarity(sup_gkey, pos_memory)
+            if params.graph_head:
+                anchor, positive = self.graph_head(torch.cat([anchor, positive])).chunk(2)
             # negative = batch_cosine_similarity(sup_key, neg_memory)
             gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
             loss = contrastive_loss2(anchor, positive,
@@ -395,17 +424,17 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             # ./log/l.0.2110191754.log
             self.exp.add_tag('un_gcs')
             # memory = queue_feats
-            memory = torch.cat(self.queue_list)
+            memory = torch.cat(self.g_queue_list)
             # pos_memory = torch.cat([cat,
             #                         ,
             #                         choice_(memory)])
             pos_memory = choice_(memory, self.feature_dim)
             # neg_memory = memory[torch.randperm(len(memory))[:512]]
 
-            anchor = batch_cosine_similarity(un_query, pos_memory)
-            positive = batch_cosine_similarity(un_key, pos_memory)
-
-            anchor, positive = self.graph_head(torch.cat([anchor, positive])).chunk(2)
+            anchor = batch_cosine_similarity(un_gquery, pos_memory)
+            positive = batch_cosine_similarity(un_gkey, pos_memory)
+            if params.graph_head:
+                anchor, positive = self.graph_head(torch.cat([anchor, positive])).chunk(2)
             # negative = batch_cosine_similarity(un_key, neg_memory)
 
             # gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
