@@ -545,6 +545,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
     def on_train_epoch_end(self, trainer: Trainer, func, params: Params, result: TrainerResult, *args, **kwargs):
         super().on_train_epoch_end(trainer, func, params, result, *args, **kwargs)
         self.test()
+        self.save_model()
         # self.logger.info(len(self.counter), len(self.yscounter))
         # self.logger.info(self.counter.most_common(100))
         # self.logger.info(self.yscounter.most_common(100))
