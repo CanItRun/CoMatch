@@ -343,21 +343,20 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
 
         if len(self.queue_list) > 0:
             Lgcs2 = graph_cs3()
-            with torch.no_grad():
-                meter.mean.Lgcs2 = Lgcs2
+            meter.mean.Lgcs = Lgcs2
+        Lce = F.cross_entropy(logits_u_s1, unys)
 
         def strategy0():
             """sup contrast"""
-            loss = Lcs
-            return loss
+            return Lcs + Lce
 
         def strategy1():
             """graph contrast"""
-            return Lgcs2
+            return Lgcs2 + Lce
 
         def strategy2():
             """sup+graph contrast"""
-            return Lgcs2 + Lcs
+            return Lgcs2 + Lcs + Lce
 
         if params.s == 0:
             loss = strategy0()
@@ -368,14 +367,6 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
         else:
             loss = 0
 
-        Lcs = F.cross_entropy(logits_u_s1, unys)
-        with torch.no_grad():
-            meter.mean.Lall = loss + Lcs
-            meter.mean.Lcs = Lcs
-            meter.mean.Lgcs = Lgcs2
-            meter.mean.Au = (logits_u_w.argmax(dim=-1) == unys).float().mean()
-
-        loss = meter.Lall
         self.optim.zero_grad()
         self.accelerator.backward(loss)
         self.optim.step()
@@ -386,6 +377,12 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
             self.ema_head.step()
             self.ema_prob.step()
             self.ema_graph.step()
+
+        with torch.no_grad():
+            meter.mean.Lall = loss
+            meter.mean.Lcs = Lcs
+            meter.mean.Lce = Lce
+            meter.mean.Au = (logits_u_w.argmax(dim=-1) == unys).float().mean()
 
         return meter
 
