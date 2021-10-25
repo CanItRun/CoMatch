@@ -278,7 +278,7 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
         features = self.head(outputs.hidden_states[-2])
         features = self.norm(features)
 
-        logits = self.model.classifier(outputs.hidden_states[-2])
+        logits = self.model.classifier(outputs.hidden_states[-2].detach())
 
         # logits_x, _, _ = logits[:bt * 3].chunk(3)
         logits_u_w, logits_u_s0, logits_u_s1 = torch.split(logits[bt * 3:], btu)
