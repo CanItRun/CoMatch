@@ -349,7 +349,7 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
         def strategy0():
             """sup contrast"""
 
-            return sup_contrast() + Lce
+            return Lce
 
         def strategy1():
             """graph contrast"""
