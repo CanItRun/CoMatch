@@ -187,6 +187,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         # self.model = build_wideresnet(num_classes=params.n_classes)
         self.model = WideResnet(n_classes=params.n_classes)
         feature_dim = 64 * self.model.k
+        self.feature_dim = feature_dim
         self.head = nn.Sequential(
             nn.Linear(feature_dim, feature_dim),
             # nn.BatchNorm1d(feature_dim),
@@ -196,8 +197,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
 
         self.graph_head = nn.Sequential(
             nn.Linear(feature_dim, feature_dim),
-            nn.BatchNorm1d(feature_dim),
-            nn.LeakyReLU(),
+            nn.LeakyReLU(negative_slope=0.1, inplace=True),
             nn.Linear(feature_dim, 128),
         )
 
@@ -216,7 +216,9 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         no_decay = ['bias', 'bn']
 
         wd_params, non_wd_params = [], []
-        for name, param in nn.ModuleList([self.model, self.head]).named_parameters():
+        for name, param in nn.ModuleList([self.model,
+                                          self.head,
+                                          self.graph_head]).named_parameters():
             if 'bn' in name:
                 non_wd_params.append(param)
             else:
@@ -379,12 +381,13 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             # pos_memory = torch.cat([choice_(un_query),
             #                         choice_(un_key),
             #                         choice_(memory)])
-            pos_memory = choice_(memory, 256)
+            pos_memory = choice_(memory, self.feature_dim)
             # neg_memory = memory[torch.randperm(len(memory))[:128]]
             # memory = torch.cat([un_query, un_key, memory])
 
             anchor = batch_cosine_similarity(sup_query, pos_memory)
             positive = batch_cosine_similarity(sup_key, pos_memory)
+            anchor, positive = self.graph_head(torch.cat([anchor, positive])).chunk(2)
             # negative = batch_cosine_similarity(sup_key, neg_memory)
             gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
             loss = contrastive_loss2(anchor, positive,
@@ -402,11 +405,13 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             # pos_memory = torch.cat([cat,
             #                         ,
             #                         choice_(memory)])
-            pos_memory = choice_(memory, 256)
+            pos_memory = choice_(memory, self.feature_dim)
             # neg_memory = memory[torch.randperm(len(memory))[:512]]
 
             anchor = batch_cosine_similarity(un_query, pos_memory)
             positive = batch_cosine_similarity(un_key, pos_memory)
+
+            anchor, positive = self.graph_head(torch.cat([anchor, positive])).chunk(2)
             # negative = batch_cosine_similarity(un_key, neg_memory)
 
             # gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
