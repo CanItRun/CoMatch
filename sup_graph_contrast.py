@@ -318,8 +318,7 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
             loss = contrastive_loss2(un_query, un_key,
                                      memory=None,
                                      norm=True,
-                                     temperature=0.2,
-                                     qk_graph=Q, eye_one_in_qk=False)
+                                     temperature=0.2)
             meter.mean.Lcs = loss
             return loss
 
@@ -337,9 +336,7 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
             loss = contrastive_loss2(anchor, positive,
                                      memory=None,
                                      norm=True,
-                                     temperature=0.2,
-                                     qk_graph=Q * batch_cosine_similarity(un_w_gquery, un_w_gquery).clip(0),
-                                     eye_one_in_qk=False)
+                                     temperature=0.2)
             meter.mean.Lgcs = loss
             return loss
 
