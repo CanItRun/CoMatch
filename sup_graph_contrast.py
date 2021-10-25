@@ -318,8 +318,6 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
                                      qk_graph=Q, eye_one_in_qk=False)
             return loss
 
-        Lcs = sup_contrast()
-
         def choice_(tensor, size=128):
             return tensor[torch.randperm(len(tensor))[:size]]
 
@@ -348,7 +346,7 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
 
         def strategy0():
             """sup contrast"""
-            return Lcs + Lce
+            return sup_contrast() + Lce
 
         def strategy1():
             """graph contrast"""
@@ -356,7 +354,7 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
 
         def strategy2():
             """sup+graph contrast"""
-            return Lgcs2 + Lcs + Lce
+            return Lgcs2 + sup_contrast() + Lce
 
         if params.s == 0:
             loss = strategy0()
