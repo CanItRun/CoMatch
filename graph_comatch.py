@@ -463,11 +463,11 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             return loss
 
         def strategy2():
-            self.exp.add_tag('Supgraph')
-            if self.eidx < 3:
-                loss = loss_x + loss_u + Lgcs1 + Lgcs2 + loss_contrast
+            self.exp.add_tag('pose-gcs')
+            if self.eidx > 10:
+                loss = loss_x + loss_u + Lgcs1 * 0.2 + Lgcs2 * 0.2 + loss_contrast
             else:
-                loss = loss_x + loss_u + loss_contrast
+                loss = loss_x + loss_u + loss_contrast + Lgcs1
             return loss
 
         def strategy3():
