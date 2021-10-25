@@ -222,7 +222,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         wd_params, non_wd_params = [], []
         for name, param in nn.ModuleList([self.model,
                                           self.head,
-                                          self.graph_head]).named_parameters():
+                                          self.graph_head, self.prob_head]).named_parameters():
             if 'bn' in name:
                 non_wd_params.append(param)
             else:
