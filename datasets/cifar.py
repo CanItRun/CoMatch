@@ -184,9 +184,6 @@ class Cifar(Dataset):
         return leng
 
 
-from lumo import DatasetBuilder
-
-
 def get_train_loader(dataset, batch_size, mu, n_iters_per_epoch, L, root='data', method='comatch'):
     data_x, label_x, data_u, label_u = load_data_train(L=L, dataset=dataset, dspth=root)
 
@@ -222,8 +219,44 @@ def get_train_loader(dataset, batch_size, mu, n_iters_per_epoch, L, root='data',
     return dl_x, dl_u
 
 
-def get_train_loader2(dataset, batch_size, mu, n_iters_per_epoch, L, root='data', method='comatch'):
+from lumo import DatasetBuilder
+
+
+def symmetric_noisy(train_y: np.ndarray, noisy_ratio: float, n_classes: int = None, force=False) -> np.ndarray:
+    """
+
+    :param train_y: raw clean labels
+    :param noisy_ratio:
+    :param n_classes:
+    :param force:
+    :return:
+    """
+    if n_classes is None:
+        n_classes = len(set(train_y))
+
+    noisy_ids = np.random.permutation(len(train_y))[:int(noisy_ratio * len(train_y))]
+    noisy_y = np.array(train_y)
+
+    _noisys = np.random.randint(0, n_classes, noisy_ids.shape[0])
+
+    if force:
+        _mask = np.where(_noisys == noisy_y[noisy_ids])
+        while _mask[0].shape[0] != 0:
+            _noisys[_mask] = np.random.randint(0, 10, _mask[0].shape[0])
+            _mask = np.where(_noisys == noisy_y[noisy_ids])
+
+    noisy_y[noisy_ids] = _noisys
+
+    return noisy_y
+
+
+def get_train_loader2(dataset, batch_size, mu, n_iters_per_epoch, L, root='data', method='comatch',
+                      long_tail=False,
+                      noisy_ratio=0,
+                      ):
     data_x, label_x, data_u, label_u = load_data_train(L=L, dataset=dataset, dspth=root)
+
+    label_nu = symmetric_noisy(label_u, noisy_ratio=noisy_ratio)
 
     if dataset == 'CIFAR10':
         mean, std = (0.4914, 0.4822, 0.4465), (0.2471, 0.2435, 0.2616)
@@ -261,18 +294,14 @@ def get_train_loader2(dataset, batch_size, mu, n_iters_per_epoch, L, root='data'
         DatasetBuilder()
             .add_input('xs', data_x)
             .add_input('ys', label_x)
+            .add_input('nys', label_nu)
             .add_output('xs', 'xs0', trans_weak)
             .add_output('xs', 'sxs0', trans_strong0)
             .add_output('xs', 'sxs1', trans_strong1)
             .add_output('ys', 'ys')
+            .add_output('nys', 'nys')
     )
 
-    # ds_x = Cifar(
-    #     dataset=dataset,
-    #     data=data_x,
-    #     labels=label_x,
-    #     mode='train_x'
-    # )  # return an iter of num_samples length (all indices of samples)
     sampler_x = RandomSampler(ds_x, replacement=True, num_samples=n_iters_per_epoch * batch_size)
     batch_sampler_x = BatchSampler(sampler_x, batch_size, drop_last=True)  # yield a batch of samples one time
     dl_x = torch.utils.data.DataLoader(
@@ -281,12 +310,6 @@ def get_train_loader2(dataset, batch_size, mu, n_iters_per_epoch, L, root='data'
         num_workers=2,
         pin_memory=True
     )
-    # ds_u = Cifar(
-    #     dataset=dataset,
-    #     data=data_u,
-    #     labels=label_u,
-    #     mode='train_u_%s' % method
-    # )
 
     ds_u = (
         DatasetBuilder()
