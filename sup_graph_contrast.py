@@ -279,7 +279,7 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
         # logits_x, _, _ = logits[:bt * 3].chunk(3)
         logits_u_w, logits_u_s0, logits_u_s1 = torch.split(logits[bt * 3:], btu)
 
-        # sup_w_query, sup_query, sup_key = features[:bt * 3].chunk(3)
+        sup_w_query, sup_query, sup_key = features[:bt * 3].chunk(3)
         un_w_query, un_query, un_key = torch.split(features[bt * 3:], btu)
 
         def graph_feature0():
@@ -338,24 +338,35 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
                                      norm=True,
                                      temperature=0.2,
                                      qk_graph=Q, eye_one_in_qk=False)
+            meter.mean.Lgcs = loss
             return loss
 
-        if len(self.queue_list) > 0:
-            Lgcs2 = graph_cs3()
-            meter.mean.Lgcs = Lgcs2
+        feats_w = torch.cat([un_w_query, sup_w_query], dim=0)
+
+        self.queue_list.append(feats_w)
+        if len(self.queue_list) > params.queue:
+            self.queue_list.pop(0)
+
         Lce = F.cross_entropy(logits_u_s1, unys)
 
         def strategy0():
             """sup contrast"""
+
             return sup_contrast() + Lce
 
         def strategy1():
             """graph contrast"""
-            return Lgcs2 + Lce
+            if len(self.queue_list) > 0:
+                Lgcs2 = graph_cs3()
+                return Lgcs2 + Lce
+            return Lce
 
         def strategy2():
             """sup+graph contrast"""
-            return Lgcs2 + sup_contrast() + Lce
+            if len(self.queue_list) > 0:
+                Lgcs2 = graph_cs3()
+                return Lgcs2 + sup_contrast() + Lce
+            return sup_contrast() + Lce
 
         if params.s == 0:
             loss = strategy0()
