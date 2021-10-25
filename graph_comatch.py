@@ -66,6 +66,9 @@ class ParamsType(Params):
         self.graph_s = 0
         self.graph_head = True
 
+        self.pretrain = True
+        self.pretrain_path = None
+
     def iparams(self):
         if self.dataset == 'cifar100':
             self.n_classes = 100
@@ -241,6 +244,9 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         self.yscounter = Counter()
 
         self.cls_counter = defaultdict(Counter)
+
+        if params.pretrain and params.pretrain_path is not None:
+            self.load_state_dict(params.pretrain_path)
 
         self.to_device()
 
@@ -467,7 +473,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             if self.eidx > 10:
                 loss = loss_x + loss_u + Lgcs1 * 0.2 + Lgcs2 * 0.2 + loss_contrast
             else:
-                loss = loss_x + loss_u + loss_contrast + Lgcs1
+                loss = loss_x + loss_u + loss_contrast
             return loss
 
         def strategy3():
