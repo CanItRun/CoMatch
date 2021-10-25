@@ -316,6 +316,7 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
                                      norm=True,
                                      temperature=0.2,
                                      qk_graph=Q, eye_one_in_qk=False)
+            meter.mean.Lcs = loss
             return loss
 
         def choice_(tensor, size=128):
@@ -378,7 +379,6 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
 
         with torch.no_grad():
             meter.mean.Lall = loss
-            meter.mean.Lcs = Lcs
             meter.mean.Lce = Lce
             meter.mean.Au = (logits_u_w.argmax(dim=-1) == unys).float().mean()
 
