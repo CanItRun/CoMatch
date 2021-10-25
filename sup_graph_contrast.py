@@ -18,6 +18,10 @@ from wrn2 import WideResnet
 torch.set_printoptions(precision=5, threshold=None, edgeitems=None, linewidth=None, profile=None, sci_mode=False)
 
 
+def choice_(tensor, size=128):
+    return tensor[torch.randperm(len(tensor))[:size]]
+
+
 class ParamsType(Params):
 
     def __init__(self):
@@ -279,7 +283,7 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
         # logits_x, _, _ = logits[:bt * 3].chunk(3)
         logits_u_w, logits_u_s0, logits_u_s1 = torch.split(logits[bt * 3:], btu)
 
-        sup_w_query, sup_query, sup_key = features[:bt * 3].chunk(3)
+        sup_w_query, _, _ = features[:bt * 3].chunk(3)
         un_w_query, un_query, un_key = torch.split(features[bt * 3:], btu)
 
         def graph_feature0():
@@ -319,9 +323,6 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
             meter.mean.Lcs = loss
             return loss
 
-        def choice_(tensor, size=128):
-            return tensor[torch.randperm(len(tensor))[:size]]
-
         def graph_cs3():
             # ./log/l.0.2110191754.log
             self.exp.add_tag('un_gcs')
@@ -340,15 +341,6 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
                                      qk_graph=Q, eye_one_in_qk=False)
             meter.mean.Lgcs = loss
             return loss
-
-        feats_w = torch.cat([un_w_query, sup_w_query], dim=0)
-        gfeats_w = torch.cat([un_w_gquery, sup_w_gquery], dim=0)
-
-        self.queue_list.append(feats_w)
-        self.g_queue_list.append(gfeats_w)
-        if len(self.queue_list) > params.queue:
-            self.queue_list.pop(0)
-            self.g_queue_list.pop(0)
 
         Lce = F.cross_entropy(logits_u_s1, unys)
 
@@ -396,6 +388,13 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
             meter.mean.Lce = Lce
             meter.mean.Au = (logits_u_w.argmax(dim=-1) == unys).float().mean()
 
+            feats_w = torch.cat([un_w_query, sup_w_query], dim=0)
+            gfeats_w = torch.cat([un_w_gquery, sup_w_gquery], dim=0)
+            self.queue_list.append(feats_w)
+            self.g_queue_list.append(gfeats_w)
+            if len(self.queue_list) > params.queue:
+                self.queue_list.pop(0)
+                self.g_queue_list.pop(0)
         return meter
 
     def loss_l2_reg_(self, tensors: torch.Tensor, w_l2=1,
