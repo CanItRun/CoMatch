@@ -447,12 +447,15 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
                 meter.mean.Gsim2 = (F.cosine_similarity(anchor, positive, dim=-1)).mean()
             # negative = batch_cosine_similarity(un_key, neg_memory)
 
+            label_graph = unys.unsqueeze(0) == unys.unsqueeze(1)
+            # ((Q > 0) == truth)
+            meter.mean.Acm = (((Q > 0) * label_graph).sum(1) / ((Q > 0)).sum(1)).mean()
+
             # gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
             loss = contrastive_loss2(anchor, positive,
                                      memory=None,
                                      norm=True,
-                                     temperature=0.2,
-                                     qk_graph=Q, eye_one_in_qk=False)
+                                     temperature=0.2)
             return loss
 
         if len(self.queue_list) > 0:
