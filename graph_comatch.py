@@ -437,7 +437,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             anchor = batch_cosine_similarity(un_gquery, pos_memory)
             positive = batch_cosine_similarity(un_gkey, pos_memory)
 
-            print(F.cosine_similarity(anchor, positive, dim=-1))
+            meter.mean.Gsim = (F.cosine_similarity(anchor, positive, dim=-1)).mean()
 
             if params.graph_head:
                 anchor, positive = self.graph_head(torch.cat([anchor, positive])).chunk(2)
