@@ -29,7 +29,7 @@ class ParamsType(Params):
 
     def __init__(self):
         super().__init__()
-        self.epoch = 1700
+        self.epoch = 1024
         self.batch_size = 128
         self.num_workers = 8
         self.optim = self.OPTIM.create_optim('SGD', momentum=0.9, lr=0.03,
@@ -61,6 +61,8 @@ class ParamsType(Params):
         self.unloader_c = 1
         self.ema = True
         self.ema_label = False  # 加了指标好看，但是降点
+
+        self.sharp_r = 1
 
     def iparams(self):
         if self.dataset == 'cifar100':
@@ -265,20 +267,8 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
 
         unxs, unys = unbatch['xs0'], unbatch['ys']
         unsxs_0, unsxs_1 = unbatch['sxs0'], unbatch['sxs1']
-        # sxs = lbatch['sxs']
-        # unxs, unys = unbatch['xs0'], unbatch['ys0']
-        # unidx = unbatch['idx0']
-        # unsxs_0 = unbatch['sxs']
-        # unsxs_1 = unbatch['ssxs0']
 
-        # (xs, xs_s0, xs_s1), ys = lbatch
-        # (unxs, unsxs_0, unsxs_1), unys = unbatch
-
-        # qxs = torch.cat([xs, unxs])
-        # kxs = torch.cat([sxs_0, unsxs_0])
         axs = torch.cat([xs, xs_s0, xs_s1, unxs, unsxs_0, unsxs_1])
-        # axs = interleave(axs, 2 * params.unloader_c + 1)
-        # outputs = self.model.forward(axs, return_hidden_states=True)
 
         bt = xs.size(0)
         btu = unxs.size(0)
@@ -349,7 +339,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
 
         Q = Q * pos_mask
         # Q = Q / Q.sum(1, keepdim=True)
-        Q = self.sharpen_(Q)
+        Q = self.sharpen_(Q, params.sharp_r)
         # contrastive loss
         loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
         loss_contrast = loss_contrast.mean()
@@ -483,9 +473,6 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             meter.mean.Lx = loss_x
             meter.mean.Lu = loss_u
             meter.mean.Lcs = loss_contrast
-
-            # meter.mean.Pm = pos_mask.float().mean()
-            # meter.mean.Pm = pos_mask.float().mean()
             meter.mean.Ax = (logits_x.argmax(dim=-1) == ys).float().mean()
             meter.mean.um = mask.float().mean()
             meter.mean.Au = (logits_u_w.argmax(dim=-1) == unys).float().mean()
