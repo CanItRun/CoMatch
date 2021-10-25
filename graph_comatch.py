@@ -18,7 +18,7 @@ from lumo import Params, Trainer, DataBundler, Meter, DataModule
 from lumo.proc.path import cache_dir
 from torchvision.transforms import FiveCrop
 
-from datasets.cifar import get_train_loader, get_val_loader
+from datasets.cifar import get_train_loader, get_val_loader, get_train_loader2
 from wrn2 import WideResnet
 
 # ParamsType = CCParams
@@ -260,15 +260,19 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         Lgcs1, Lgcs2 = 0, 0
         lbatch, unbatch = batch
         # idx = lbatch['idx0']
-        # xs, ys = lbatch['xs0'], lbatch['ys0']
+        xs, ys = lbatch['xs0'], lbatch['ys']
+        xs_s0, xs_s1 = lbatch['sxs0'], lbatch['sxs1']
+
+        unxs, unys = unbatch['xs0'], unbatch['ys']
+        unsxs_0, unsxs_1 = unbatch['sxs0'], unbatch['sxs1']
         # sxs = lbatch['sxs']
         # unxs, unys = unbatch['xs0'], unbatch['ys0']
         # unidx = unbatch['idx0']
         # unsxs_0 = unbatch['sxs']
         # unsxs_1 = unbatch['ssxs0']
 
-        (xs, xs_s0, xs_s1), ys = lbatch
-        (unxs, unsxs_0, unsxs_1), unys = unbatch
+        # (xs, xs_s0, xs_s1), ys = lbatch
+        # (unxs, unsxs_0, unsxs_1), unys = unbatch
 
         # qxs = torch.cat([xs, unxs])
         # kxs = torch.cat([sxs_0, unsxs_0])
@@ -549,7 +553,7 @@ def main():
 
     trainer = CoMatch(params)
     trainer.rnd.mark('12')
-    dltrain_x, dltrain_u = get_train_loader(
+    dltrain_x, dltrain_u = get_train_loader2(
         'CIFAR10', params.batch_size, params.unloader_c,
         1024, L=params.n_percls, root=cache_dir(), method='comatch')
     dlval = get_val_loader(dataset='CIFAR10', batch_size=128, num_workers=2, root=cache_dir())

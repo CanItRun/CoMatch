@@ -184,6 +184,9 @@ class Cifar(Dataset):
         return leng
 
 
+from lumo import DatasetBuilder
+
+
 def get_train_loader(dataset, batch_size, mu, n_iters_per_epoch, L, root='data', method='comatch'):
     data_x, label_x, data_u, label_u = load_data_train(L=L, dataset=dataset, dspth=root)
 
@@ -206,6 +209,93 @@ def get_train_loader(dataset, batch_size, mu, n_iters_per_epoch, L, root='data',
         data=data_u,
         labels=label_u,
         mode='train_u_%s' % method
+    )
+    sampler_u = RandomSampler(ds_u, replacement=True, num_samples=mu * n_iters_per_epoch * batch_size)
+    # sampler_u = RandomSampler(ds_u, replacement=False)
+    batch_sampler_u = BatchSampler(sampler_u, batch_size * mu, drop_last=True)
+    dl_u = torch.utils.data.DataLoader(
+        ds_u,
+        batch_sampler=batch_sampler_u,
+        num_workers=2,
+        pin_memory=True
+    )
+    return dl_x, dl_u
+
+
+def get_train_loader2(dataset, batch_size, mu, n_iters_per_epoch, L, root='data', method='comatch'):
+    data_x, label_x, data_u, label_u = load_data_train(L=L, dataset=dataset, dspth=root)
+
+    if dataset == 'CIFAR10':
+        mean, std = (0.4914, 0.4822, 0.4465), (0.2471, 0.2435, 0.2616)
+    elif dataset == 'CIFAR100':
+        mean, std = (0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761)
+
+    trans_weak = T.Compose([
+        T.Resize((32, 32)),
+        T.PadandRandomCrop(border=4, cropsize=(32, 32)),
+        T.RandomHorizontalFlip(p=0.5),
+        T.Normalize(mean, std),
+        T.ToTensor(),
+    ])
+    trans_strong0 = T.Compose([
+        T.Resize((32, 32)),
+        T.PadandRandomCrop(border=4, cropsize=(32, 32)),
+        T.RandomHorizontalFlip(p=0.5),
+        RandomAugment(2, 10),
+        T.Normalize(mean, std),
+        T.ToTensor(),
+    ])
+    trans_strong1 = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.RandomResizedCrop(32, scale=(0.2, 1.)),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.RandomApply([
+            transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)
+        ], p=0.8),
+        transforms.RandomGrayscale(p=0.2),
+        transforms.ToTensor(),
+        transforms.Normalize(mean, std),
+    ])
+
+    ds_x = (
+        DatasetBuilder()
+            .add_input('xs', data_x)
+            .add_input('ys', label_x)
+            .add_output('xs', 'xs0', trans_weak)
+            .add_output('xs', 'sxs0', trans_strong0)
+            .add_output('xs', 'sxs1', trans_strong1)
+            .add_output('ys', 'ys')
+    )
+
+    # ds_x = Cifar(
+    #     dataset=dataset,
+    #     data=data_x,
+    #     labels=label_x,
+    #     mode='train_x'
+    # )  # return an iter of num_samples length (all indices of samples)
+    sampler_x = RandomSampler(ds_x, replacement=True, num_samples=n_iters_per_epoch * batch_size)
+    batch_sampler_x = BatchSampler(sampler_x, batch_size, drop_last=True)  # yield a batch of samples one time
+    dl_x = torch.utils.data.DataLoader(
+        ds_x,
+        batch_sampler=batch_sampler_x,
+        num_workers=2,
+        pin_memory=True
+    )
+    # ds_u = Cifar(
+    #     dataset=dataset,
+    #     data=data_u,
+    #     labels=label_u,
+    #     mode='train_u_%s' % method
+    # )
+
+    ds_u = (
+        DatasetBuilder()
+            .add_input('xs', data_u)
+            .add_input('ys', label_u)
+            .add_output('xs', 'xs0', trans_weak)
+            .add_output('xs', 'sxs0', trans_strong0)
+            .add_output('xs', 'sxs1', trans_strong1)
+            .add_output('ys', 'ys')
     )
     sampler_u = RandomSampler(ds_u, replacement=True, num_samples=mu * n_iters_per_epoch * batch_size)
     # sampler_u = RandomSampler(ds_u, replacement=False)
