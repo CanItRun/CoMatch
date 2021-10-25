@@ -412,14 +412,16 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
 
             anchor = batch_cosine_similarity(sup_gquery, pos_memory)
             positive = batch_cosine_similarity(sup_gkey, pos_memory)
+            meter.mean.Gssim = (F.cosine_similarity(anchor, positive, dim=-1)).mean()
             if params.graph_head:
                 anchor, positive = self.graph_head(torch.cat([anchor, positive])).chunk(2)
+                meter.mean.Gssim2 = (F.cosine_similarity(anchor, positive, dim=-1)).mean()
             # negative = batch_cosine_similarity(sup_key, neg_memory)
             gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
             loss = contrastive_loss2(anchor, positive,
                                      memory=None,
                                      norm=True,
-                                     temperature=1,
+                                     temperature=0.2,
                                      qk_graph=gqk)
             return loss
 
@@ -438,16 +440,18 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             positive = batch_cosine_similarity(un_gkey, pos_memory)
 
             meter.mean.Gsim = (F.cosine_similarity(anchor, positive, dim=-1)).mean()
+            # meter.mean.Gs50
 
             if params.graph_head:
                 anchor, positive = self.graph_head(torch.cat([anchor, positive])).chunk(2)
+                meter.mean.Gsim2 = (F.cosine_similarity(anchor, positive, dim=-1)).mean()
             # negative = batch_cosine_similarity(un_key, neg_memory)
 
             # gqk = ys.unsqueeze(0) == ys.unsqueeze(1)
             loss = contrastive_loss2(anchor, positive,
                                      memory=None,
                                      norm=True,
-                                     temperature=1,
+                                     temperature=0.2,
                                      qk_graph=Q, eye_one_in_qk=False)
             return loss
 
