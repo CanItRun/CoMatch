@@ -245,9 +245,6 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
 
         self.cls_counter = defaultdict(Counter)
 
-        if params.pretrain and params.pretrain_path is not None:
-            self.load_state_dict(params.pretrain_path)
-
         self.to_device()
 
     def to_logits(self, xs) -> torch.Tensor:
@@ -422,7 +419,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             loss = contrastive_loss2(anchor, positive,
                                      memory=None,
                                      norm=True,
-                                     temperature=0.2,
+                                     temperature=1,
                                      qk_graph=gqk)
             return loss
 
@@ -447,7 +444,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             loss = contrastive_loss2(anchor, positive,
                                      memory=None,
                                      norm=True,
-                                     temperature=0.2,
+                                     temperature=1,
                                      qk_graph=Q, eye_one_in_qk=False)
             return loss
 
