@@ -342,10 +342,13 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
             return loss
 
         feats_w = torch.cat([un_w_query, sup_w_query], dim=0)
+        gfeats_w = torch.cat([un_w_gquery, sup_w_gquery], dim=0)
 
         self.queue_list.append(feats_w)
+        self.g_queue_list.append(gfeats_w)
         if len(self.queue_list) > params.queue:
             self.queue_list.pop(0)
+            self.g_queue_list.pop(0)
 
         Lce = F.cross_entropy(logits_u_s1, unys)
 
