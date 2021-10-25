@@ -315,6 +315,7 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
         Q = unys.unsqueeze(0) == unys.unsqueeze(1)
 
         def sup_contrast():
+            self.exp.add_tag('Lcs')
             loss = contrastive_loss2(un_query, un_key,
                                      memory=None,
                                      norm=True,
@@ -349,7 +350,7 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
         def strategy0():
             """sup contrast"""
 
-            return Lce
+            return Lce + sup_contrast()
 
         def strategy1():
             """graph contrast"""
