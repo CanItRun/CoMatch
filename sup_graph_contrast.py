@@ -338,7 +338,8 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
                                      memory=None,
                                      norm=True,
                                      temperature=0.2,
-                                     qk_graph=Q, eye_one_in_qk=False)
+                                     qk_graph=Q * batch_cosine_similarity(un_w_gquery, un_w_gquery).clip(0),
+                                     eye_one_in_qk=False)
             meter.mean.Lgcs = loss
             return loss
 
