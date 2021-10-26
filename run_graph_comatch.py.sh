@@ -26,5 +26,6 @@
 # python graph_comatch.py --device=0 --s=21 --graph_s=1 $@
 # python graph_comatch.py --device=0 --s=1 --graph_s=1 $@
 # python graph_comatch.py --device=0 --s=3 --graph_s=1 $@
+# python graph_comatch.py --device=1 --s=1 --graph_s=1 $@
 
-python graph_comatch.py --device=1 --s=1 --graph_s=1 $@
+python graph_comatch.py --device=2 --s=3 --graph_s=1 $@
