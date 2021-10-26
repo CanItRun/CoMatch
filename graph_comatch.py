@@ -435,10 +435,10 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             pos_memory = torch.cat([choice_(sup_gquery, 256),
                                     choice_(sup_gkey, 256),
                                     choice_(memory, 256)])
+            pos_memory = choice_(pos_memory, self.feature_dim)
 
             anchor = batch_cosine_similarity(un_gquery, pos_memory)
             positive = batch_cosine_similarity(un_gkey, pos_memory)
-            pos_memory = choice_(pos_memory, self.feature_dim)
 
             meter.mean.Gsim = (F.cosine_similarity(anchor, positive, dim=-1)).mean()
             # meter.mean.Gs50
