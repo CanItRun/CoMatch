@@ -51,7 +51,7 @@ def load_data_train(L=250, dataset='CIFAR10', dspth='./data', include_sup=False)
         datalist = [
             osp.join(dspth, 'cifar-100-python', 'train')]
         n_class = 100
-        assert L in [25, 400, 2500, 10000]
+        assert L in [100, 400, 2500, 10000]
 
     data, labels = [], []
     for data_batch in datalist:
