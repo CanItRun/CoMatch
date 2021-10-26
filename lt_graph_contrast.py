@@ -284,7 +284,7 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
         # logits_x, _, _ = logits[:bt * 3].chunk(3)
         logits_u_w, logits_u_s0, logits_u_s1 = torch.split(logits[bt * 3:], btu)
 
-        sup_w_query, _, _ = features[:bt * 3].chunk(3)
+        sup_w_query, sup_query, sup_key = features[:bt * 3].chunk(3)
         un_w_query, un_query, un_key = torch.split(features[bt * 3:], btu)
 
         def graph_feature0():
@@ -317,7 +317,10 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
 
         def sup_contrast():
             self.exp.add_tag('Lcs')
-            loss = contrastive_loss2(un_query, un_key,
+            query = torch.cat([sup_query, un_query])
+            key = torch.cat([sup_key, un_key])
+
+            loss = contrastive_loss2(query, key,
                                      memory=None,
                                      norm=True,
                                      temperature=0.2,
