@@ -33,5 +33,6 @@
 # python graph_comatch.py --device=1 --s=22 --graph_s=1 $@
 # python graph_comatch.py --device=0 --s=21 --graph_s=1 $@
 # python graph_comatch.py --device=2 --s=3 --graph_s=1 $@
+# python graph_comatch.py --graph-s=1 --s=21 --device=5 --n_percls=10 $@
 
-python graph_comatch.py --graph-s=1 --s=21 --device=5 --n_percls=10 $@
+python graph_comatch.py --graph-s=0 --s=21 --device=0 --n_percls=10 $@
