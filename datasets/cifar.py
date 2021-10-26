@@ -39,7 +39,7 @@ class ThreeCropsTransform:
         return [x1, x2, x3]
 
 
-def load_data_train(L=250, dataset='CIFAR10', dspth='./data'):
+def load_data_train(L=250, dataset='CIFAR10', dspth='./data', include_sup=False):
     if dataset == 'CIFAR10':
         datalist = [
             osp.join(dspth, 'cifar-10-batches-py', 'data_batch_{}'.format(i + 1))
@@ -69,7 +69,11 @@ def load_data_train(L=250, dataset='CIFAR10', dspth='./data'):
         np.random.shuffle(indices)
         print(indices[:10])
 
-        inds_x, inds_u = indices[:n_labels], indices[n_labels:]
+        inds_x = indices[:n_labels]
+        if include_sup:
+            inds_u = indices
+        else:
+            inds_u = indices[n_labels:]
         data_x += [
             data[i].reshape(3, 32, 32).transpose(1, 2, 0)
             for i in inds_x
@@ -250,11 +254,58 @@ def symmetric_noisy(train_y: np.ndarray, noisy_ratio: float, n_classes: int = No
     return noisy_y
 
 
+def create_imblanced_data(labels, imb_type='exp', imb_factor=0.02, core=2):
+    """
+    reimp code from https://github.com/dvlab-research/Parametric-Contrastive-Learning
+
+    default params is a default hparams of cifar10/cifar100 in
+        Bbn: Bilateral-branch network with cumulative learning for long-tailed visual recognition.
+        see details in https://github.com/Megvii-Nanjing/BBN/blob/7992e90884/configs/cifar100.yaml
+
+    Args:
+        labels:
+        imb_type:
+        imb_factor:
+
+    Returns:
+
+    """
+    labels = np.array(labels)
+    cats = set(labels)
+    cat_num = len(cats)
+    img_max = len(labels) // cat_num
+    if imb_type == 'exp':
+        img_num_per_cls = [int(img_max * imb_factor ** (i / (cat_num - 1.0))) for i in range(cat_num)]
+    elif imb_type == 'step':
+        half = cat_num // 2
+        img_num_per_cls = [img_max] * half + [int(img_max * imb_factor)] * (cat_num - half)
+    else:
+        img_num_per_cls = [img_max] * cat_num
+
+    indexs = []
+    cindexs = []
+    for i, num in zip(range(cat_num), img_num_per_cls):
+        idx = np.where(labels == i)[0]
+        np.random.shuffle(idx)
+        indexs.extend(idx[:num])
+        cindexs.extend(idx[:core])
+
+    cindexs = np.hstack([indexs for i in range((len(indexs) // len(cindexs)) + 1)])
+    cindexs = cindexs[:len(indexs)]
+    return indexs, cindexs
+
+
 def get_train_loader2(dataset, batch_size, mu, n_iters_per_epoch, L, root='data', method='comatch',
                       long_tail=False,
+                      imb_factor=0.005,
                       noisy_ratio=0,
                       ):
-    data_x, label_x, data_u, label_u = load_data_train(L=L, dataset=dataset, dspth=root)
+    if long_tail:
+        data_x, label_x, data_u, label_u = load_data_train(L=L, dataset=dataset, dspth=root, include_sup=True)
+    else:
+        data_x, label_x, data_u, label_u = load_data_train(L=L, dataset=dataset, dspth=root)
+
+    indices, cindices = create_imblanced_data(label_u, imb_factor=imb_factor)
 
     label_nu = symmetric_noisy(label_u, noisy_ratio=noisy_ratio)
 
@@ -290,15 +341,29 @@ def get_train_loader2(dataset, batch_size, mu, n_iters_per_epoch, L, root='data'
         transforms.Normalize(mean, std),
     ])
 
-    ds_x = (
-        DatasetBuilder()
-            .add_input('xs', data_x)
-            .add_input('ys', label_x)
-            .add_output('xs', 'xs0', trans_weak)
-            .add_output('xs', 'sxs0', trans_strong0)
-            .add_output('xs', 'sxs1', trans_strong1)
-            .add_output('ys', 'ys')
-    )
+    if long_tail:
+        ds_x = (
+            DatasetBuilder()
+                .add_input('xs', data_u)
+                .add_input('ys', label_u)
+                .add_input('nys', label_nu)
+                .add_output('xs', 'xs0', trans_weak)
+                .add_output('xs', 'sxs0', trans_strong0)
+                .add_output('xs', 'sxs1', trans_strong1)
+                .add_output('ys', 'ys')
+                .add_output('nys', 'nys')
+                .subset(cindices)
+        )
+    else:
+        ds_x = (
+            DatasetBuilder()
+                .add_input('xs', data_x)
+                .add_input('ys', label_x)
+                .add_output('xs', 'xs0', trans_weak)
+                .add_output('xs', 'sxs0', trans_strong0)
+                .add_output('xs', 'sxs1', trans_strong1)
+                .add_output('ys', 'ys')
+        )
 
     sampler_x = RandomSampler(ds_x, replacement=True, num_samples=n_iters_per_epoch * batch_size)
     batch_sampler_x = BatchSampler(sampler_x, batch_size, drop_last=True)  # yield a batch of samples one time
@@ -320,6 +385,8 @@ def get_train_loader2(dataset, batch_size, mu, n_iters_per_epoch, L, root='data'
             .add_output('ys', 'ys')
             .add_output('nys', 'nys')
     )
+    if long_tail:
+        ds_u.subset(indices)
     sampler_u = RandomSampler(ds_u, replacement=True, num_samples=mu * n_iters_per_epoch * batch_size)
     # sampler_u = RandomSampler(ds_u, replacement=False)
     batch_sampler_u = BatchSampler(sampler_u, batch_size * mu, drop_last=True)
