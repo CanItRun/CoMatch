@@ -405,10 +405,10 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             memory = torch.cat(self.g_queue_list)
             # memory = torch.cat([un_query, un_key, queue_feats])
             # pos_memory = memory[torch.randperm(len(memory))[:128]]
-            pos_memory = torch.cat([choice_(un_gquery, 256),
-                                    choice_(un_gkey, 256),
-                                    choice_(memory, 256)])
-            pos_memory = choice_(pos_memory, self.feature_dim)
+            # pos_memory = torch.cat([choice_(un_gquery, 256),
+            #                         choice_(un_gkey, 256),
+            #                         choice_(memory, 256)])
+            pos_memory = choice_(memory, self.feature_dim)
             # neg_memory = memory[torch.randperm(len(memory))[:128]]
             # memory = torch.cat([un_query, un_key, memory])
 
@@ -432,10 +432,10 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             self.exp.add_tag('un_gcs')
             # memory = queue_feats
             memory = torch.cat(self.g_queue_list)
-            pos_memory = torch.cat([choice_(sup_gquery, 256),
-                                    choice_(sup_gkey, 256),
-                                    choice_(memory, 256)])
-            pos_memory = choice_(pos_memory, self.feature_dim)
+            # pos_memory = torch.cat([choice_(sup_gquery, 256),
+            #                         choice_(sup_gkey, 256),
+            #                         choice_(memory, 256)])
+            pos_memory = choice_(memory, self.feature_dim)
 
             anchor = batch_cosine_similarity(un_gquery, pos_memory)
             positive = batch_cosine_similarity(un_gkey, pos_memory)
