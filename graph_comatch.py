@@ -415,7 +415,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             anchor = batch_cosine_similarity(sup_gquery, pos_memory)
             positive = batch_cosine_similarity(sup_gkey, pos_memory)
             meter.mean.Gssim = (F.cosine_similarity(anchor, positive, dim=-1)).mean()
-            if params.graph_head and pos_memory.shape[0] == 256 * 3:
+            if params.graph_head and pos_memory.shape[0] == self.feature_dim:
                 anchor, positive = self.graph_head(torch.cat([anchor, positive])).chunk(2)
                 meter.mean.Gssim2 = (F.cosine_similarity(anchor, positive, dim=-1)).mean()
             # negative = batch_cosine_similarity(sup_key, neg_memory)
@@ -442,7 +442,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             meter.mean.Gsim = (F.cosine_similarity(anchor, positive, dim=-1)).mean()
             # meter.mean.Gs50
 
-            if params.graph_head and pos_memory.shape[0] == 256 * 3:
+            if params.graph_head and pos_memory.shape[0] == self.feature_dim:
                 anchor, positive = self.graph_head(torch.cat([anchor, positive])).chunk(2)
                 meter.mean.Gsim2 = (F.cosine_similarity(anchor, positive, dim=-1)).mean()
             # negative = batch_cosine_similarity(un_key, neg_memory)
