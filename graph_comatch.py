@@ -206,7 +206,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         )
 
         self.graph_head = nn.Sequential(
-            nn.Linear(feature_dim, feature_dim),
+            nn.Linear(256 * 3, feature_dim),
             nn.LeakyReLU(negative_slope=0.1, inplace=True),
             nn.Linear(feature_dim, 128),
         )
