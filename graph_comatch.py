@@ -71,6 +71,8 @@ class ParamsType(Params):
 
         self.pretrain = True
         self.pretrain_path = None
+        self.sup_choice_in_queue = False
+        self.un_choice_in_queue = False
 
     def iparams(self):
         if self.dataset == 'cifar100':
@@ -98,6 +100,7 @@ class GraphParams(ParamsType):
         self.thr = 0.95
 
         self.contrast_th = 0.8
+        self.q_from = self.choice('prob', 'gcs', 'cs')
 
 
 ParamsType = GraphParams
@@ -380,7 +383,13 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         sim_probs = sim / sim.sum(1, keepdim=True)
 
         # pseudo-label graph with self-loop
-        Q = torch.mm(probs, probs.t())
+        if params.q_from == 'prob':
+            Q = torch.mm(probs, probs.t())
+        elif params.q_from == 'cs':
+            Q = batch_cosine_similarity(un_w_query, un_w_query)
+        elif params.q_from == 'gcs':
+            Q = batch_cosine_similarity(un_w_gquery, un_w_gquery)
+
         Q.fill_diagonal_(1)
         pos_mask = (Q >= params.contrast_th).float()
 
@@ -395,6 +404,10 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         loss_u = - torch.sum((F.log_softmax(logits_u_s0, dim=1) * probs), dim=1) * mask
         loss_u = loss_u.mean()
 
+        label_graph = unys.unsqueeze(0) == unys.unsqueeze(1)
+        # ((Q > 0) == truth)
+        meter.mean.Acm = (((Q > 0) * label_graph).sum(1) / ((Q > 0)).sum(1)).mean()
+
         def choice_(tensor, size=128):
             return tensor[torch.randperm(len(tensor))[:size]]
 
@@ -402,13 +415,13 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         def graph_cs2():
             # ./log/l.0.2110191754.log
             self.exp.add_tag('sup_gcs')
-            memory = torch.cat(self.g_queue_list)
+            pos_memory = torch.cat(self.g_queue_list)
             # memory = torch.cat([un_query, un_key, queue_feats])
             # pos_memory = memory[torch.randperm(len(memory))[:128]]
-            # pos_memory = torch.cat([choice_(un_gquery, 256),
-            #                         choice_(un_gkey, 256),
-            #                         choice_(memory, 256)])
-            pos_memory = choice_(memory, self.feature_dim)
+            pos_memory = torch.cat([choice_(un_gquery, 256),
+                                    choice_(un_gkey, 256),
+                                    choice_(pos_memory, 256)])
+            pos_memory = choice_(pos_memory, self.feature_dim)
             # neg_memory = memory[torch.randperm(len(memory))[:128]]
             # memory = torch.cat([un_query, un_key, memory])
 
@@ -431,11 +444,13 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             # ./log/l.0.2110191754.log
             self.exp.add_tag('un_gcs')
             # memory = queue_feats
-            memory = torch.cat(self.g_queue_list)
-            # pos_memory = torch.cat([choice_(sup_gquery, 256),
-            #                         choice_(sup_gkey, 256),
-            #                         choice_(memory, 256)])
-            pos_memory = choice_(memory, self.feature_dim)
+            pos_memory = torch.cat(self.g_queue_list)
+            pos_memory = torch.cat([
+                # choice_(sup_gquery, 256),
+                # choice_(sup_gkey, 256),
+                choice_(pos_memory, 256)
+            ])
+            pos_memory = choice_(pos_memory, self.feature_dim)
 
             anchor = batch_cosine_similarity(un_gquery, pos_memory)
             positive = batch_cosine_similarity(un_gkey, pos_memory)
@@ -472,6 +487,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             return loss
 
         def strategy1():
+            """多个实验均证明该方法效果不好：权重过高可能"""
             self.exp.add_tag('loss1')
             loss = loss_x + loss_u + Lgcs1 + Lgcs2 + loss_contrast
             return loss
