@@ -26,11 +26,11 @@
 # python graph_comatch.py --device=0 --s=1 --graph_s=1 $@
 # python graph_comatch.py --device=0 --s=3 --graph_s=1 $@
 # python graph_comatch.py --device=1 --s=1 --graph_s=1 $@
-# python graph_comatch.py --device=2 --s=3 --graph_s=1 $@
 # python graph_comatch.py --device=3 --s=1 --graph_s=1 --graph_head=False $@
 # python graph_comatch.py --device=4 --s=21 --graph_s=1 --graph_head=False $@
 # python graph_comatch.py --device=5 --s=3 --graph_s=1 --graph_head=False $@
 # python graph_comatch.py --device=0 --s=21 --graph_s=1 $@
 # python graph_comatch.py --device=0 --s=22 --graph_s=1 $@
+# python graph_comatch.py --device=1 --s=22 --graph_s=1 $@
 
-python graph_comatch.py --device=1 --s=22 --graph_s=1 $@
+python graph_comatch.py --device=2 --s=3 --graph_s=1 $@
