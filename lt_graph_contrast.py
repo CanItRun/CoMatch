@@ -442,6 +442,11 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
         self.test()
         self.save_model()
 
+    def on_train_step_end(self, trainer: Trainer, func, params: Params, meter: Meter, *args, **kwargs):
+        super().on_train_step_end(trainer, func, params, meter, *args, **kwargs)
+        if params.idx % 150 == 0:
+            self.test()
+
 
 def main():
     params = ParamsType()
