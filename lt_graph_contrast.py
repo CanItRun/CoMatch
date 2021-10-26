@@ -317,6 +317,8 @@ class SupContrast(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks
 
         def sup_contrast():
             self.exp.add_tag('Lcs')
+            ays = torch.cat([ys, unys])
+            Q = ays.unsqueeze(0) == ays.unsqueeze(1)
             query = torch.cat([sup_query, un_query])
             key = torch.cat([sup_key, un_key])
 
