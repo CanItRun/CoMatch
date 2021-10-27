@@ -110,6 +110,7 @@ class GraphParams(ParamsType):
 
         self.avg_from = self.choice('none', 'cs', 'gcs')
         self.gcs_w = 0.2
+        self.g_dim = 128
 
 
 ParamsType = GraphParams
@@ -209,7 +210,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         # self.model = build_wideresnet(num_classes=params.n_classes)
         self.model = WideResnet(n_classes=params.n_classes)
         self.feature_dim = feature_dim = 64 * self.model.k
-        self.gfeature_dim = gfeature_dim = 512
+        self.gfeature_dim = gfeature_dim = params.g_dim
         self.logger.info('feature_dim', feature_dim)
         self.logger.info('gfeature_dim', self.gfeature_dim)
         self.head = nn.Sequential(
