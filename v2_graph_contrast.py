@@ -208,8 +208,10 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         super().imodels(params)
         # self.model = build_wideresnet(num_classes=params.n_classes)
         self.model = WideResnet(n_classes=params.n_classes)
-        feature_dim = 64 * self.model.k
-        self.feature_dim = feature_dim
+        self.feature_dim = feature_dim = 64 * self.model.k
+        self.gfeature_dim = gfeature_dim = 512
+        self.logger.info('feature_dim', feature_dim)
+        self.logger.info('gfeature_dim', self.gfeature_dim)
         self.head = nn.Sequential(
             nn.Linear(feature_dim, feature_dim),
             # nn.BatchNorm1d(feature_dim),
@@ -218,7 +220,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         )
 
         self.graph_head = nn.Sequential(
-            nn.Linear(feature_dim, feature_dim),
+            nn.Linear(gfeature_dim, feature_dim),
             nn.LeakyReLU(negative_slope=0.1, inplace=True),
             nn.Linear(feature_dim, 128),
         )
@@ -406,7 +408,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         loss_u = loss_u.mean()
 
         label_graph = unys.unsqueeze(0) == unys.unsqueeze(1)
-        meter.mean.Acm = (((Q > 0) * label_graph).sum(1) / ((Q > 0)).sum(1)).mean()
+        meter.mean.Acm = (((Q > 0) * label_graph).sum(1) / ((label_graph > 0)).sum(1)).mean()
 
         # graph cs2
         def graph_cs2():
