@@ -383,18 +383,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             scores, lbs_u_guess = torch.max(probs, dim=1)
             mask = scores.ge(params.thr).float()
 
-            feats_w = torch.cat([un_w_query, sup_w_query], dim=0)
-            gfeats_w = torch.cat([un_w_gquery, sup_w_gquery], dim=0)
-            onehot = torch.zeros(bt, params.n_classes).cuda().scatter(1, ys.view(-1, 1), 1)
-            probs_w = torch.cat([probs_orig, onehot], dim=0)
 
-            self.g_queue_list.append(gfeats_w)
-            self.queue_list.append(feats_w)
-            self.queue_prob.append(probs_w)
-            if len(self.queue_list) > params.queue:
-                self.queue_list.pop(0)
-                self.queue_prob.pop(0)
-                self.g_queue_list.pop(0)
 
         # pseudo-label graph with self-loop
         if params.q_from == 'prob':
@@ -486,7 +475,21 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             self.ema_head.step()
             self.ema_prob.step()
             self.ema_graph.step()
+        
+        with torch.no_grad():
+            feats_w = torch.cat([un_w_query, sup_w_query], dim=0)
+            gfeats_w = torch.cat([un_w_gquery, sup_w_gquery], dim=0)
+            onehot = torch.zeros(bt, params.n_classes).cuda().scatter(1, ys.view(-1, 1), 1)
+            probs_w = torch.cat([probs_orig, onehot], dim=0)
 
+            self.g_queue_list.append(gfeats_w)
+            self.queue_list.append(feats_w)
+            self.queue_prob.append(probs_w)
+            if len(self.queue_list) > params.queue:
+                self.queue_list.pop(0)
+                self.queue_prob.pop(0)
+                self.g_queue_list.pop(0)
+        
         return meter
 
     def loss_l2_reg_(self, tensors: torch.Tensor, w_l2=1,
