@@ -421,7 +421,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
                 pos_memory = torch.cat([choice_(un_gquery, 256),
                                         choice_(un_gkey, 256),
                                         choice_(pos_memory, 256)])
-            pos_memory = choice_(pos_memory, self.feature_dim)
+            pos_memory = choice_(pos_memory, self.gfeature_dim)
             # neg_memory = memory[torch.randperm(len(memory))[:128]]
             # memory = torch.cat([un_query, un_key, memory])
 
@@ -429,7 +429,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             positive = batch_cosine_similarity(sup_gkey, pos_memory)
 
             meter.mean.Gssim = (F.cosine_similarity(anchor, positive, dim=-1)).mean()
-            if params.graph_head and pos_memory.shape[0] == self.feature_dim:
+            if params.graph_head and pos_memory.shape[0] == self.gfeature_dim:
                 anchor, positive = self.graph_head(torch.cat([anchor, positive])).chunk(2)
                 meter.mean.Gssim2 = (F.cosine_similarity(anchor, positive, dim=-1)).mean()
             # negative = batch_cosine_similarity(sup_key, neg_memory)
