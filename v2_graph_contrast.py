@@ -374,7 +374,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
                     elif params.avg_from == 'gcs':
                         queue_feats = torch.cat(self.g_queue_list)
                         A = torch.exp(torch.mm(un_w_gquery, queue_feats.t()) / params.temperature)
-                        A = A / A.sum(1, keepdim=True)
+                        A = A / (A.sum(1, keepdim=True) + 1e-10)
                     else:
                         raise NotImplementedError()
 
@@ -382,8 +382,6 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
 
             scores, lbs_u_guess = torch.max(probs, dim=1)
             mask = scores.ge(params.thr).float()
-
-
 
         # pseudo-label graph with self-loop
         if params.q_from == 'prob':
@@ -475,7 +473,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             self.ema_head.step()
             self.ema_prob.step()
             self.ema_graph.step()
-        
+
         with torch.no_grad():
             feats_w = torch.cat([un_w_query, sup_w_query], dim=0)
             gfeats_w = torch.cat([un_w_gquery, sup_w_gquery], dim=0)
@@ -489,7 +487,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
                 self.queue_list.pop(0)
                 self.queue_prob.pop(0)
                 self.g_queue_list.pop(0)
-        
+
         return meter
 
     def loss_l2_reg_(self, tensors: torch.Tensor, w_l2=1,
