@@ -369,11 +369,14 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
                     queue_probs = torch.cat(self.queue_prob)
                     if params.avg_from == 'cs':
                         queue_feats = torch.cat(self.queue_list)
+                        A = torch.exp(torch.mm(un_w_query, queue_feats.t()) / params.temperature)
+                        A = A / A.sum(1, keepdim=True)
                     elif params.avg_from == 'gcs':
                         queue_feats = torch.cat(self.g_queue_list)
-
-                    A = torch.exp(torch.mm(un_w_query, queue_feats.t()) / params.temperature)
-                    A = A / A.sum(1, keepdim=True)
+                        A = torch.exp(torch.mm(un_w_gquery, queue_feats.t()) / params.temperature)
+                        A = A / A.sum(1, keepdim=True)
+                    else:
+                        raise NotImplementedError()
 
                     probs = params.alpha * probs + (1 - params.alpha) * torch.mm(A, queue_probs)
 
