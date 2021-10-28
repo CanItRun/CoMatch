@@ -1,6 +1,6 @@
 """
 图对比学习第二阶段测试
- - graph_head	fcs	choice 默认都无所谓
+ - graph_head fcs choice 默认都无所谓
  - 没有 Lgcs2
  - 调 Lgcs1 权重
  - 调 Q 来源 和平滑 prob
@@ -401,6 +401,7 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
         Q = self.sharpen_(Q, params.sharp_r)
 
         loss_contrast = contrastive_loss2(un_query, un_key, temperature=params.temperature,
+                                          norm=True,
                                           qk_graph=Q,
                                           eye_one_in_qk=False)
 
