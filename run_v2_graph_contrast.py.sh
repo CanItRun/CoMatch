@@ -44,5 +44,6 @@
 # python v2_graph_contrast.py --device=2 --graph_s=0 --gcs_w=0.2 --avg_from=cs --q_from=prob --sup_choice_in_queue=False --g_dim=512 $@
 # python v2_graph_contrast.py --device=2 --graph_s=0 --gcs_w=0.5 --avg_from=cs --q_from=prob $@
 # python v2_graph_contrast.py --device=3 --graph_s=0 --gcs_w=0.5 --avg_from=cs --q_from=prob $@
+# python v2_graph_contrast.py --device=2 --graph_s=1 --gcs_w=0.2 --avg_from=cs --q_from=prob --sup_choice_in_queue=True --g_dim=512 --n_percls=20 $@
 
-python v2_graph_contrast.py --device=2 --graph_s=1 --gcs_w=0.2 --avg_from=cs --q_from=prob --sup_choice_in_queue=True --g_dim=512 --n_percls=20 $@
+python v2_graph_contrast.py --device=2 --graph_s=1 --gcs_w=0.2 --avg_from=cs --q_from=prob --sup_choice_in_queue=True --g_dim=512 --n_percls=80 $@
