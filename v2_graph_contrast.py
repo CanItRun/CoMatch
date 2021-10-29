@@ -420,9 +420,8 @@ class CoMatch(Trainer, MSELoss, L2Loss, callbacks.InitialCallback, callbacks.Tra
             # memory = torch.cat([un_query, un_key, queue_feats])
             # pos_memory = memory[torch.randperm(len(memory))[:128]]
             if params.sup_choice_in_queue:
-                pos_memory = torch.cat([choice_(un_gquery, 256),
-                                        choice_(un_gkey, 256),
-                                        choice_(pos_memory, 256)])
+                pos_memory = torch.cat([un_gquery, un_gkey,
+                                        choice_(pos_memory, len(un_gkey))])
             pos_memory = choice_(pos_memory, self.gfeature_dim)
             # neg_memory = memory[torch.randperm(len(memory))[:128]]
             # memory = torch.cat([un_query, un_key, memory])
