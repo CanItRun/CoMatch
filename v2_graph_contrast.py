@@ -54,7 +54,7 @@ class ParamsType(Params):
         self.sview = 2
 
         self.pretrain = True
-        self.semiseed = 123
+        self.semiseed = '12'
         self.limit_cls = -1
 
         # dataset params
@@ -540,7 +540,7 @@ def main():
     params.from_args()
 
     trainer = CoMatch(params)
-    trainer.rnd.mark('12')
+    trainer.rnd.mark(params.semiseed)
     dltrain_x, dltrain_u = get_train_loader2(
         'CIFAR10', params.batch_size, params.unloader_c,
         1024, L=params.n_percls, root=cache_dir(), method='comatch')
