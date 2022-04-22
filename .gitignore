@@ -1,3 +1,9 @@
 log/
+log_a/
+log_b/
+log_c/
 *.pyc
 *.pth
+lumo
+*.json
+*.tar
