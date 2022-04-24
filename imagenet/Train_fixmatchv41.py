@@ -4,6 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  * For full license text, see LICENSE.txt file in the repo root or https://opensource.org/licenses/BSD-3-Clause
 '''
+from lumo.contrib.nn.loss import contrastive_loss2
+from lumo.core.interp import Linear
+from lumo import Meter, Record
 import argparse
 import os
 import random
@@ -16,9 +19,10 @@ from datetime import datetime
 import sys
 import math
 import numpy as np
-
+from memory_bank import MemoryBank
 import tensorboard_logger
 import logging
+from augmentations.strategies import simclr, randaugment
 
 import torch
 import torch.nn as nn
@@ -34,13 +38,15 @@ import torchvision.datasets as datasets
 import torch.nn.functional as F
 from lumo import DatasetBuilder
 import loader
-from Model import Model
+from Model2 import Model
 from resnet import *
-from lumo import Trainer,Params,Logger
+from lumo import Trainer, Params, Logger
 from data import imagenet
+
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('data', metavar='DIR', default='', help='path to dataset')
-parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet50',choices=['resnet50','resnet50x2','resnet50x4'])
+parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet50',
+                    choices=['resnet50', 'resnet50x2', 'resnet50x4'])
 parser.add_argument('-j', '--workers', default=32, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
 parser.add_argument('--epochs', default=400, type=int, metavar='N',
@@ -64,7 +70,8 @@ parser.add_argument('--wd', '--weight-decay', default=1e-4, type=float,
 parser.add_argument('-p', '--print-freq', default=50, type=int,
                     metavar='N', help='print frequency (default: 50)')
 parser.add_argument('--resume', default='', type=str, metavar='PATH', help='path to latest checkpoint (default: none)')
-parser.add_argument('--pretrained', default='', type=str, metavar='PATH', help='path to pretrained model (default: none)')
+parser.add_argument('--pretrained', default='', type=str, metavar='PATH',
+                    help='path to pretrained model (default: none)')
 parser.add_argument('--world-size', default=1, type=int,
                     help='number of nodes for distributed training')
 parser.add_argument('--rank', default=0, type=int,
@@ -93,15 +100,29 @@ parser.add_argument('--alpha', default=0.9, type=float, help='weight for model p
 parser.add_argument('--exp_dir', default='experiment/comatch_1percent', type=str, help='experiment directory')
 
 ## dataset settings
-parser.add_argument('--percent', type=int, default=1, choices=[1,10], help='percentage of labeled samples')
+parser.add_argument('--percent', type=int, default=1, choices=[1, 10], help='percentage of labeled samples')
 parser.add_argument('--num-class', default=1000, type=int)
 parser.add_argument('--annotation', default='annotation_1percent.json', type=str, help='annotation file')
 
 from torchvision.datasets.folder import default_loader
 import os
 
+
 class Trainer(Trainer):
     __exp_name__ = os.path.splitext(os.path.basename(__name__))[0]
+
+
+def sharpen(x: torch.Tensor, T=0.5):
+    """
+    让概率分布变的更 sharp，即倾向于 onehot
+    :param x: prediction, sum(x,dim=-1) = 1
+    :param T: temperature, default is 0.5
+    :return:
+    """
+    with torch.no_grad():
+        temp = torch.pow(x, 1 / T)
+        return temp / temp.sum(dim=1, keepdims=True)
+
 
 def main():
     args = parser.parse_args()
@@ -109,12 +130,12 @@ def main():
     if args.seed is not None:
         random.seed(args.seed)
         torch.manual_seed(args.seed)
-        
+
     if args.dist_url == "env://" and args.world_size == -1:
         args.world_size = int(os.environ["WORLD_SIZE"])
-        
+
     os.makedirs(args.exp_dir, exist_ok=True)
-        
+
     ngpus_per_node = torch.cuda.device_count()
     if args.multiprocessing_distributed:
         args.world_size = ngpus_per_node * args.world_size
@@ -131,12 +152,13 @@ def main_worker(gpu, ngpus_per_node, args):
 
     if args.gpu is not None:
         print("Use GPU: {} for training".format(args.gpu))
-        
+
     if args.multiprocessing_distributed and args.gpu != 0:
         def print_pass(*args):
             pass
+
         builtins.print = print_pass
-        
+
     if args.dist_url == "env://" and args.rank == -1:
         args.rank = int(os.environ["RANK"])
     if args.multiprocessing_distributed:
@@ -149,15 +171,15 @@ def main_worker(gpu, ngpus_per_node, args):
     # create model
     print("=> creating model '{}'".format(args.arch))
     if args.arch == 'resnet50':
-        model = Model(resnet50,args,width=1)
-    elif args.arch == 'resnet50x2':    
-        model = Model(resnet50,args,width=2)
-    elif args.arch == 'resnet50x4':    
-        model = Model(resnet50,args,width=4)
+        model = Model(resnet50, args, width=1)
+    elif args.arch == 'resnet50x2':
+        model = Model(resnet50, args, width=2)
+    elif args.arch == 'resnet50x4':
+        model = Model(resnet50, args, width=4)
     else:
-        raise NotImplementedError('model not supported {}'.format(args.arch))    
-    
-    # load moco-v2 pretrained model
+        raise NotImplementedError('model not supported {}'.format(args.arch))
+
+        # load moco-v2 pretrained model
     if args.pretrained:
         if os.path.isfile(args.pretrained):
             print("=> loading checkpoint '{}'".format(args.pretrained))
@@ -166,26 +188,25 @@ def main_worker(gpu, ngpus_per_node, args):
             for k in list(state_dict.keys()):
                 if k.startswith('module.encoder_q'):
                     # remove prefix
-                    state_dict[k.replace('module.encoder_q', 'encoder')] = state_dict[k]     
-                # delete renamed or unused k
+                    state_dict[k.replace('module.encoder_q', 'encoder')] = state_dict[k]
+                    # delete renamed or unused k
                 del state_dict[k]
             for k in list(state_dict.keys()):
                 if 'fc.0' in k:
-                    state_dict[k.replace('fc.0','fc1')] = state_dict[k]
+                    state_dict[k.replace('fc.0', 'fc1')] = state_dict[k]
                 if 'fc.2' in k:
-                    state_dict[k.replace('fc.2','fc2')] = state_dict[k]            
-                    del state_dict[k]   
+                    state_dict[k.replace('fc.2', 'fc2')] = state_dict[k]
+                    del state_dict[k]
             args.start_epoch = 0
             msg = model.load_state_dict(state_dict, strict=False)
-            print("=> loaded pre-trained model '{}'".format(args.pretrained))            
+            print("=> loaded pre-trained model '{}'".format(args.pretrained))
             # copy paramter to the momentum encoder
             for param, param_m in zip(model.encoder.parameters(), model.m_encoder.parameters()):
-                param_m.data.copy_(param.data)  
-                param_m.requires_grad = False                
+                param_m.data.copy_(param.data)
+                param_m.requires_grad = False
         else:
             print("=> no checkpoint found at '{}'".format(args.pretrained))
-            
-    
+
     if args.gpu is not None:
         torch.cuda.set_device(args.gpu)
         model.cuda(args.gpu)
@@ -195,7 +216,7 @@ def main_worker(gpu, ngpus_per_node, args):
         args.batch_size = int(args.batch_size / ngpus_per_node)
         args.batch_size_u = int(args.batch_size_u / ngpus_per_node)
         args.workers = int((args.workers + ngpus_per_node - 1) / ngpus_per_node)
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu]) #find_unused_parameters=True
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])  # find_unused_parameters=True
     else:
         model.cuda()
         # DistributedDataParallel will divide and allocate batch_size to all
@@ -203,13 +224,13 @@ def main_worker(gpu, ngpus_per_node, args):
         model = torch.nn.parallel.DistributedDataParallel(model)
 
     # define loss function (criterion) and optimizer
-    criteria_x = nn.CrossEntropyLoss().cuda(args.gpu)    
-    
+    criteria_x = nn.CrossEntropyLoss().cuda(args.gpu)
+
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay,
                                 nesterov=True
-                               )
+                                )
 
     # optionally resume from a checkpoint
     if args.resume:
@@ -230,58 +251,67 @@ def main_worker(gpu, ngpus_per_node, args):
             print("=> no checkpoint found at '{}'".format(args.resume))
 
     cudnn.benchmark = True
-    
+
     print("=> preparing dataset")
     # Data loading code         
-    
+
+    transform_randaug = transforms.Compose([
+        default_loader,
+        randaugment([0.485, 0.456, 0.406], [0.229, 0.224, 0.225], 224),
+        # transforms.RandomResizedCrop(224, scale=(0.2, 1.)),
+        # transforms.RandomApply([
+        #     transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)
+        # ], p=0.8),
+        # transforms.RandomGrayscale(p=0.2),
+        # transforms.RandomHorizontalFlip(),
+        # transforms.ToTensor(),
+        # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+
     transform_strong = transforms.Compose([
         default_loader,
-            transforms.RandomResizedCrop(224, scale=(0.2, 1.)),                
-            transforms.RandomApply([
-                transforms.ColorJitter(0.4, 0.4, 0.4, 0.1) 
-            ], p=0.8),
-            transforms.RandomGrayscale(p=0.2),                         
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
-        ])
+        transforms.RandomResizedCrop(224, scale=(0.2, 1.)),
+        transforms.RandomApply([
+            transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)
+        ], p=0.8),
+        transforms.RandomGrayscale(p=0.2),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
     transform_weak = transforms.Compose([
         default_loader,
-            transforms.RandomResizedCrop(224, scale=(0.2, 1.)),                                     
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
-        ])    
+        transforms.RandomResizedCrop(224, scale=(0.2, 1.)),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
     transform_eval = transforms.Compose([
-            default_loader,
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
-        ])
-    
-    three_crops_transform = loader.ThreeCropsTransform(transform_weak, transform_strong, transform_strong)
-    
+        default_loader,
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+
+    # three_crops_transform = loader.ThreeCropsTransform(transform_weak, transform_strong, transform_strong)
+
     traindir = os.path.join(args.data, 'train')
     valdir = os.path.join(args.data, 'val')
-    
-
 
     # labeled_dataset = datasets.ImageFolder(traindir,transform_weak)
     # unlabeled_dataset = datasets.ImageFolder(traindir,three_crops_transform)
 
-    
-    xs,ys = imagenet('train')
-    exs,eys = imagenet('val')
-
+    xs, ys = imagenet('train')
+    exs, eys = imagenet('val')
 
     labeled_dataset = (
         DatasetBuilder()
             .add_idx('id')
             .add_input('xs', xs)
             .add_input('ys', ys)
-            .add_output('xs', 'xs',transform_weak )
-            .add_output('xs', 'xs1', transform_strong)
+            .add_output('xs', 'xs', transform_weak)
+            .add_output('xs', 'xs1', transform_randaug)
             .add_output('xs', 'xs2', transform_strong)
             .add_output('ys', 'ys')
     )
@@ -291,61 +321,58 @@ def main_worker(gpu, ngpus_per_node, args):
             .add_idx('id')
             .add_input('xs', xs)
             .add_input('ys', ys)
-            .add_output('xs', 'xs',transform_weak )
+            .add_output('xs', 'xs', transform_weak)
             .add_output('xs', 'xs1', transform_strong)
             .add_output('xs', 'xs2', transform_strong)
             .add_output('ys', 'ys')
     )
 
-    
     if not os.path.exists(args.annotation):
         # randomly sample labeled data on main process (gpu0)
-        label_per_class = 13 if args.percent==1 else 128
-        if args.gpu==0:
+        label_per_class = 13 if args.percent == 1 else 128
+        if args.gpu == 0:
             indexs = list(range(len(xs)))
             random.shuffle(indexs)
-            labeled_samples=[]
-            unlabeled_samples=[]
+            labeled_samples = []
+            unlabeled_samples = []
             num_img = torch.zeros(args.num_class)
 
-            for i,index in enumerate(indexs):
-                if num_img[ys[index]]<label_per_class:
+            for i, index in enumerate(indexs):
+                if num_img[ys[index]] < label_per_class:
                     labeled_samples.append(index)
-                    num_img[ys[index]]+=1
+                    num_img[ys[index]] += 1
                 else:
-                    unlabeled_samples.append(index)        
-            annotation = {'labeled_samples':labeled_samples,'unlabeled_samples':unlabeled_samples}
+                    unlabeled_samples.append(index)
+            annotation = {'labeled_samples': labeled_samples, 'unlabeled_samples': unlabeled_samples}
             with open(args.annotation, 'w') as f:
                 json.dump(annotation, f)
-            print('save annotation to %s'%args.annotation)   
+            print('save annotation to %s' % args.annotation)
         dist.barrier()
-    print('load annotation from %s'%args.annotation)
-    annotation = json.load(open(args.annotation,'r'))
-    
-    if args.percent==1:
+    print('load annotation from %s' % args.annotation)
+    annotation = json.load(open(args.annotation, 'r'))
+
+    if args.percent == 1:
         # repeat labeled samples for faster dataloading
-        labeled_dataset.subset(annotation['labeled_samples']*10)
+        labeled_dataset.subset(annotation['labeled_samples'] * 10)
     else:
         labeled_dataset.subset(annotation['labeled_samples'])
 
     unlabeled_dataset.subset(annotation['unlabeled_samples'])
-    
+
     print(labeled_dataset)
     print(unlabeled_dataset)
 
     labeled_sampler = torch.utils.data.distributed.DistributedSampler(labeled_dataset)
     labeled_loader = torch.utils.data.DataLoader(
         labeled_dataset, batch_size=args.batch_size, shuffle=False,
-        num_workers=args.workers, pin_memory=True, sampler=labeled_sampler)    
+        num_workers=args.workers, pin_memory=True, sampler=labeled_sampler)
 
     unlabeled_sampler = torch.utils.data.distributed.DistributedSampler(unlabeled_dataset)
     unlabeled_loader = torch.utils.data.DataLoader(
         unlabeled_dataset, batch_size=int(args.batch_size_u), shuffle=False,
         num_workers=args.workers, pin_memory=True, sampler=unlabeled_sampler)
-    
-    
-    
-    exs,eys = imagenet('val')
+
+    exs, eys = imagenet('val')
 
     eval_dataset = (
         DatasetBuilder()
@@ -362,23 +389,23 @@ def main_worker(gpu, ngpus_per_node, args):
         num_workers=args.workers, pin_memory=True)
     print(eval_dataset)
     # create loggers
-    if args.gpu==0:
-        tb_logger = tensorboard_logger.Logger(logdir=os.path.join(args.exp_dir,'tensorboard'), flush_secs=2)
-        
+    if args.gpu == 0:
+        tb_logger = tensorboard_logger.Logger(logdir=os.path.join(args.exp_dir, 'tensorboard'), flush_secs=2)
+
         trainer = Trainer(Params())
         logger = trainer.logger
         # logger = setup_default_logging(args)
-        logger.info(dict(args._get_kwargs()))        
+        logger.info(dict(args._get_kwargs()))
     else:
         tb_logger = None
         logger = None
 
     for epoch in range(args.start_epoch, args.epochs):
-        if epoch==0:
-            args.m = 0.99 # larger update in first epoch
+        if epoch == 0:
+            args.m = 0.99  # larger update in first epoch
         else:
             args.m = args.moco_m
-       
+
         adjust_learning_rate(optimizer, epoch, args)
 
         acc1 = validate(val_loader, model, args, logger, tb_logger, epoch)
@@ -387,21 +414,21 @@ def main_worker(gpu, ngpus_per_node, args):
         # evaluate on validation set
 
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
-                and args.rank % ngpus_per_node == 0):
+                                                    and args.rank % ngpus_per_node == 0):
             save_checkpoint({
                 'epoch': epoch + 1,
                 'arch': args.arch,
                 'state_dict': model.state_dict(),
-                'optimizer' : optimizer.state_dict()
-            },filename='{}/checkpoint_{:04d}.pth.tar'.format(args.exp_dir,epoch))
-    
+                'optimizer': optimizer.state_dict()
+            }, filename='{}/checkpoint_{:04d}.pth.tar'.format(args.exp_dir, epoch))
+
     # evaluate ema model
     acc1 = validate(val_loader, model, args, logger, tb_logger, -1)
-    
-            
-def train(labeled_loader, unlabeled_loader, model, criteria_x, optimizer, epoch, args, logger, tb_logger):
-    unlabeled_loader.sampler.set_epoch(epoch)  
-    
+
+
+def train(labeled_loader, unlabeled_loader, model, criteria_x, optimizer, eidx, args, logger, tb_logger):
+    unlabeled_loader.sampler.set_epoch(eidx)
+
     batch_time = AverageMeter()
     data_time = AverageMeter()
     loss_x_meter = AverageMeter()
@@ -413,100 +440,207 @@ def train(labeled_loader, unlabeled_loader, model, criteria_x, optimizer, epoch,
     n_conf = AverageMeter()
     # the number of positives (edges) in the pseudo-label graph
     pos_meter = AverageMeter()
-    
+
     # switch to train mode
     model.train()
-    
-    labeled_loader.sampler.set_epoch(epoch*len(unlabeled_loader))
+
+    labeled_loader.sampler.set_epoch(eidx * len(unlabeled_loader))
     iter_labeled_loader = iter(labeled_loader)
-    end = time.time()   
+    end = time.time()
+    qk_b = True
+    qk_p = True
+    include_ssl = True
+    da_prob_list = []
+    da_prob_c_list = []
+    apply_da = True
+    mb = MemoryBank(50000, feature_dim=1)
+    cmb = MemoryBank(50000, feature_dim=1)
+
+    w_sche = Linear(50000 * 0.05,
+                    50000 * 0.8,
+                    left=0, right=50)
+    n_classes = args.num_class
+    device = args.gpu
+    cls_score = torch.zeros(n_classes, dtype=torch.float, device=args.gpu)
+
+    record = Record()
+
     for i, unlabeled_batch in enumerate(unlabeled_loader):
+        meter = Meter()
+
         try:
             labeled_batch = next(iter_labeled_loader)
         except StopIteration:
-            labeled_loader.sampler.set_epoch(epoch*len(unlabeled_loader)+i+1)
+            labeled_loader.sampler.set_epoch(eidx * len(unlabeled_loader) + i + 1)
             iter_labeled_loader = iter(labeled_loader)
             labeled_batch = next(iter_labeled_loader)
-                
-        lbs_u_real = unlabeled_batch['ys'].cuda(args.gpu, non_blocking=True)  
-        
+
+        metric_uys = unlabeled_batch['ys'].cuda(args.gpu, non_blocking=True)
+
         # measure data loading time
         data_time.update(time.time() - end)
-        
+
         # probs: soft pseudo-label
         # Q: pseudo-label graph
         # sim: embedding graph
-        outputs_x, outputs_u_s0, lbs_x, probs, Q, sim = model(args,
-        [labeled_batch['xs'],labeled_batch['ys']],
-        [[unlabeled_batch['xs'],unlabeled_batch['xs1'],unlabeled_batch['xs2']],unlabeled_batch['ys']],
-        epoch=epoch)
+        (x_w_logits, un_w_logits, un_s0_logits, ys, probs, Q, sim), new = model(args,
+                                                                                [labeled_batch['xs'],
+                                                                                 labeled_batch['ys']],
+                                                                                [[unlabeled_batch['xs'],
+                                                                                  unlabeled_batch['xs1'],
+                                                                                  unlabeled_batch['xs2']],
+                                                                                 unlabeled_batch['ys']],
+                                                                                epoch=eidx)
 
-        loss_x = criteria_x(outputs_x, lbs_x)
-        
-        with torch.no_grad():         
-            scores, lbs_u_guess = torch.max(probs, dim=1)
-            mask = scores.ge(args.thr).float()
-        
-        # unsupervised cross-entropy              
-        loss_u = - torch.sum((F.log_softmax(outputs_u_s0,dim=1) * probs),dim=1) * mask
-        loss_u = loss_u.mean()
-      
-        # remove edges with low similairty and normalize pseudo-label graph   
-        pos_mask = (Q>=args.contrast_th)       
-        Q_mask = Q * pos_mask
-        Q_mask = Q_mask / Q_mask.sum(1,keepdim=True)
-        
-        positives = sim * pos_mask
-        pos_probs = positives / sim.sum(1, keepdim=True)       
-        log_probs = torch.log(pos_probs + 1e-7) * pos_mask
-        
-        # unsupervised contrastive loss   
-        loss_contrast = - (log_probs*Q_mask).sum(1)
-        loss_contrast = loss_contrast.mean()
-        
-        # ramp up the weight for unsupervised contrastive loss (optional)
-        lam_c = min(epoch+1, args.lam_c)
-        loss = loss_x + args.lam_u * loss_u + lam_c * loss_contrast
+        (un_s0_feature, un_s1_feature, m_feat, un_w_pys, m_pys) = new
+
+        def data_align():
+            probs = un_w_probs
+            da_prob_list.append(probs.mean(0))
+            if len(da_prob_list) > 32:
+                da_prob_list.pop(0)
+            prob_avg = torch.stack(da_prob_list, dim=0).mean(0)
+            probs = probs / prob_avg
+            probs = probs / probs.sum(dim=1, keepdim=True)
+            return probs
+
+        un_w_probs = torch.softmax(un_w_logits, dim=1)
+        if apply_da:
+            un_w_probs = data_align()
+
+        def c_data_align():
+            probs = un_w_c_probs
+            da_prob_c_list.append(probs.mean(0))
+            if len(da_prob_c_list) > 32:
+                da_prob_c_list.pop(0)
+            prob_avg = torch.stack(da_prob_c_list, dim=0).mean(0)
+            probs = probs / prob_avg
+            probs = probs / probs.sum(dim=1, keepdim=True)
+            return probs
+
+        thresh, _ = mb.tensor().view(-1).topk(int(w_sche(eidx)))
+        scores, un_w_pys = torch.max(un_w_probs, dim=1)
+        mb.push(scores.unsqueeze(1))
+        p_mask = scores.ge(thresh[-1])
+        meter.last.t = thresh[-1]
+
+        unacc_thresh, _ = (-mb.tensor().view(-1)).topk(int(50000 * 0.2))
+        pp_mask = scores < (-unacc_thresh[-1])  # tail 20%
+
+        Lu = F.cross_entropy(un_s0_logits, un_w_pys, reduction='none') * p_mask.float()
+        Lu = Lu.mean()
+        Lx = F.cross_entropy(x_w_logits, ys)
+
+        # with torch.no_grad():
+        #     self.pscore[idu] = scores
+        #     self.pys[idu] = un_w_pys
+        # 获得偏离中间值的类别
+        #
+        with torch.no_grad():
+            un_sharpen_prob = sharpen(un_w_probs)
+            cls_score = cls_score * 0.8 + un_sharpen_prob.sum(dim=0) * 0.2
+            cls_mean = cls_score.mean()
+            # 未充分训练的部分 or 分布失衡
+            # (abs(cls_score - cls_score.mean()) >= cls_score.std() / 2).mean()
+
+            bcnt = max(1, int(w_sche(eidx) * n_classes // 50000))
+
+            _, balance_cls = (-abs(cls_score - cls_mean)).topk(bcnt)
+            # meter.mean.utm = untrain_mask.float().mean()
+            balance_cls = set(balance_cls.tolist())  # 类别比较平衡的样本
+            balance_mask = torch.tensor([i in balance_cls for i in un_w_pys.tolist()])
+
+        Lcoarse = 0
+        # if params.fc and params.apply_h_fc:
+        #     cys = self.mmap[ys]
+        #     metric_cuys = self.mmap[metric_uys]
+        #     (x_w_c_logits), (un_w_c_logits, un_s0_c_logits, un_s1_c_logits) = (
+        #         output.c_logits[:sup_size],
+        #         output.c_logits[sup_size:].chunk(len(unsup_img_lis))
+        #     )
+        #     un_w_c_probs = torch.softmax(un_w_c_logits, dim=1)
+        #     if params.apply_da:
+        #         un_w_c_probs = c_data_align()
+        #
+        #     cthresh, _ = self.cmb.tensor().view(-1).topk(int(self.w_sche(self.eidx)))
+        #     c_scores, un_w_c_pys = torch.max(un_w_c_probs, dim=1)
+        #     self.cmb.push(c_scores.unsqueeze(1))
+        #     cp_mask = c_scores.ge(cthresh[-1])
+        #     meter.last.ct = cthresh[-1]
+        #
+        #     Lcu = F.cross_entropy(un_s0_c_logits, un_w_c_pys, reduction='none') * cp_mask.float()
+        #     Lcu = Lcu.mean()
+        #     Lcx = F.cross_entropy(x_w_c_logits, cys)
+        #     with torch.no_grad():
+        #         self.cpscore[idu] = c_scores
+        #         self.cpys[idu] = un_w_c_pys
+        #     Lcoarse = Lcu + Lcx
+
+        Lccs = 0
+        if include_ssl:
+            qk_graph = (un_w_pys[:, None] == un_w_pys[None, :])  # type:torch.Tensor
+            # if params.fc:
+            #     if params.apply_h_mask:
+            #         qkk_graph = un_w_c_pys[:, None] == un_w_c_pys[None, :]
+            #         qk_graph = qk_graph * qkk_graph
+
+            if qk_b:  # 遮掉不平衡的 40 个样本用无监督对比学习训练
+                qk_graph[~balance_mask, :] = 0
+                qk_graph[:, ~balance_mask] = 0
+
+            if qk_p:
+                qk_graph[pp_mask, :] = 0
+                qk_graph[:, pp_mask] = 0
+
+            qk_graph = qk_graph | torch.eye(len(qk_graph), device=self.device, dtype=torch.bool)
+            qk_graph = sharpen(qk_graph, 1)
+
+            Lcs = contrastive_loss2(un_s0_feature, un_s1_feature,
+                                    qk_graph=qk_graph,
+                                    norm=True, temperature=0.1)
+        else:
+            Lcs = 0
+
+        Lall = Lx + Lu + Lcs + Lcoarse
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()    
-        
-        loss_x_meter.update(loss_x.item())
-        loss_u_meter.update(loss_u.item())
-        loss_contrast_meter.update(loss_contrast.item())
-        pos_meter.update(pos_mask.sum(1).float().mean().item())
-  
-        corr_u_lb = (lbs_u_guess == lbs_u_real).float() * mask
-        n_correct_u_lbs_meter.update(corr_u_lb.sum().item())
-        n_conf.update(mask.sum().item())
-        
+        Lall.backward()
+        optimizer.step()
+
+        meter.mean.Lall = Lall
+        meter.mean.Lx = Lx
+        meter.mean.Lu = Lu
+        meter.mean.Lcs = Lcs
+        meter.mean.Ax = (x_w_logits.argmax(dim=-1) == ys).float().mean()
+        meter.mean.Au = (un_w_logits.argmax(dim=-1) == metric_uys).float().mean()
+
+        # pos_meter.update(pos_mask.sum(1).float().mean().item())
+
+        # corr_u_lb = (lbs_u_guess == metric_uys).float() * mask
+        # n_correct_u_lbs_meter.update(corr_u_lb.sum().item())
+        # n_conf.update(mask.sum().item())
+
         # measure elapsed time
-        batch_time.update(time.time() - end)
+        meter.mean.bt = time.time() - end
         end = time.time()
 
-        if i % args.print_freq == 0 and args.gpu==0:   
-            lr_log = [pg['lr'] for pg in optimizer.param_groups]
-            lr_log = sum(lr_log) / len(lr_log)
+        meter.mean.dt = data_time.avg
+        if i % args.print_freq == 0:
+            logger.newline()
 
-            logger.info("{} || epoch:{}, iter: {}. loss_u: {:.3f}. loss_x: {:.3f}. loss_c: {:.3f}. "
-                        "n_correct_u: {:.2f}/{:.2f}. n_edge: {:.3f}. LR: {:.2f}. "
-                        "batch_time: {:.2f}. data_time: {:.2f}.".format(
-                            args.exp_dir, epoch, i + 1, loss_u_meter.avg, loss_x_meter.avg, loss_contrast_meter.avg,
-                            n_correct_u_lbs_meter.avg, n_conf.avg, pos_meter.avg, lr_log, batch_time.avg, data_time.avg))
+        if args.gpu == 0:
+            logger.inline(record.avg())
 
-    if args.gpu==0:    
-        tb_logger.log_value('loss_x', loss_x_meter.avg, epoch)
-        tb_logger.log_value('loss_u', loss_u_meter.avg, epoch)
-        tb_logger.log_value('loss_c', loss_contrast_meter.avg, epoch)
-        tb_logger.log_value('num_conf', n_conf.avg, epoch)
-        tb_logger.log_value('guess_label_acc', n_correct_u_lbs_meter.avg/n_conf.avg, epoch)
+    if args.gpu == 0:
+        tb_logger.log_value('loss_x', loss_x_meter.avg, eidx)
+        tb_logger.log_value('loss_u', loss_u_meter.avg, eidx)
+        tb_logger.log_value('loss_c', loss_contrast_meter.avg, eidx)
+        tb_logger.log_value('num_conf', n_conf.avg, eidx)
+        tb_logger.log_value('guess_label_acc', n_correct_u_lbs_meter.avg / n_conf.avg, eidx)
 
-        
-        
+
 def validate(val_loader, model, args, logger, tb_logger, epoch):
-   
     top1 = AverageMeter()
     top5 = AverageMeter()
 
@@ -517,23 +651,23 @@ def validate(val_loader, model, args, logger, tb_logger, epoch):
         end = time.time()
         for i, batch in enumerate(val_loader):
             # compute output
-            
-            output,target = model(args, [batch['xs'],batch['ys']], is_eval=True)
+
+            output, target = model(args, [batch['xs'], batch['ys']], is_eval=True)
 
             # measure accuracy 
             acc1, acc5 = accuracy(output, target, topk=(1, 5))
             top1.update(acc1[0])
             top5.update(acc5[0])
 
-            if i % args.print_freq == 0 and args.gpu==0:
+            if i % args.print_freq == 0 and args.gpu == 0:
                 logger.info("validation ||epoch:{}, iter: {}. acc1 : {:.2f}. acc5 : {:.2f}.".format(
                     epoch, i + 1, top1.avg, top5.avg))
 
-    if args.gpu==0:    
+    if args.gpu == 0:
         logger.info("validation ||epoch:{}, acc1 : {:.2f}. acc5 : {:.2f}.".format(epoch, top1.avg, top5.avg))
         tb_logger.log_value('test_acc', top1.avg, epoch)
         tb_logger.log_value('test_acc5', top5.avg, epoch)
-    torch.cuda.empty_cache()    
+    torch.cuda.empty_cache()
     return top1.avg
 
 
@@ -546,6 +680,7 @@ class AverageMeter(object):
     Computes and stores the average and current value
 
     """
+
     def __init__(self):
         self.reset()
 
@@ -564,7 +699,6 @@ class AverageMeter(object):
 
 def setup_default_logging(args, default_level=logging.INFO,
                           format="%(asctime)s - %(levelname)s -  %(message)s"):
-
     logger = logging.getLogger('')
 
     logging.basicConfig(  # unlike the root logger, a custom logger can’t be configured using basicConfig()
@@ -580,12 +714,14 @@ def setup_default_logging(args, default_level=logging.INFO,
 
     return logger
 
+
 def time_str(fmt=None):
     if fmt is None:
         fmt = '%Y-%m-%d_%H:%M:%S'
 
     #     time.strftime(format[, t])
     return datetime.today().strftime(fmt)
+
 
 def adjust_learning_rate(optimizer, epoch, args):
     """Decay the learning rate based on schedule"""
@@ -597,6 +733,7 @@ def adjust_learning_rate(optimizer, epoch, args):
             lr *= 0.1 if epoch >= milestone else 1.
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
+
 
 def accuracy(output, target, topk=(1,)):
     """Computes the accuracy over the k top predictions for the specified values of k"""
@@ -614,7 +751,6 @@ def accuracy(output, target, topk=(1,)):
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
 
+
 if __name__ == '__main__':
     main()
-    
-    

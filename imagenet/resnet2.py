@@ -125,22 +125,7 @@ class ResNet(nn.Module):
         self.layer4 = self._make_layer(block, self.base * 8, layers[3], stride=2)
         self.avgpool = nn.AvgPool2d(7, stride=1)
 
-        self.classifier = nn.Linear(self.base * 8 * block.expansion, num_class)
-        self.l2norm = Normalize(2)
-        self.mlp = mlp
-        if self.mlp:  # use an extra projection layer
-            self.fc1 = nn.Linear(self.base * 8 * block.expansion, 2048)
-            self.fc2 = nn.Linear(2048, low_dim)
-        else:
-            self.fc = nn.Linear(self.base * 8 * block.expansion, low_dim)
-
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
+        self.feature_num = self.base * 8 * block.expansion
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
@@ -174,15 +159,16 @@ class ResNet(nn.Module):
         x = self.avgpool(x)
         feat = x.view(x.size(0), -1)
 
-        out = self.classifier(feat)
-
-        if self.mlp:
-            feat = F.relu(self.fc1(feat))
-            feat = self.fc2(feat)
-        else:
-            feat = self.fc(feat)
-        feat = self.l2norm(feat)
-        return out, feat
+        return feat
+        # out = self.classifier(feat)
+        #
+        # if self.mlp:
+        #     feat = F.relu(self.fc1(feat))
+        #     feat = self.fc2(feat)
+        # else:
+        #     feat = self.fc(feat)
+        # feat = self.l2norm(feat)
+        # return out, feat
 
 
 def resnet18(pretrained=False, **kwargs):

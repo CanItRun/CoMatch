@@ -157,7 +157,7 @@ def train_one_epoch(epoch,
 
         # embedding similarity
         sim = torch.exp(torch.mm(feats_u_s0, feats_u_s1.t()) / args.temperature)
-        sim_probs = sim / sim.sum(1, keepdim=True)
+        sim_probs = sim / sim.sum(1, keepdim=True) # exp
 
         # pseudo-label graph with self-loop
         Q = torch.mm(probs, probs.t())
@@ -168,7 +168,8 @@ def train_one_epoch(epoch,
         Q = Q / Q.sum(1, keepdim=True)
 
         # contrastive loss
-        loss_contrast = - (torch.log(sim_probs + 1e-7) * Q).sum(1)
+        loss_contrast = - (torch.log(sim_probs + 1e-7) # log_softmax()
+                           * Q).sum(1)
         loss_contrast = loss_contrast.mean()
 
         # unsupervised classification loss
